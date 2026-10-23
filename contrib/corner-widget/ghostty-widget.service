@@ -1,0 +1,11 @@
+[Unit]
+Description=Data collector for the Ghostty corner widget (weather + office music)
+After=network-online.target pipewire.service
+
+[Service]
+ExecStart=/usr/bin/python3 -I %h/.local/share/ghostty-widget/widgetd.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

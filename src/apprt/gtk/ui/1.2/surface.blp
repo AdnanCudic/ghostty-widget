@@ -194,6 +194,10 @@ Overlay terminal_page {
   }
 
   [overlay]
+  // Fork addition: date, clock, weather and music in the top-right corner.
+  $GhosttyCornerWidget {}
+
+  [overlay]
   $GhosttyKeyStateOverlay key_state_overlay {
     tables: bind template.key-table;
     sequence: bind template.key-sequence;

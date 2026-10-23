@@ -1,0 +1,104 @@
+using Gtk 4.0;
+using Adw 1;
+
+// Corner widget (fork addition): date, clock, weather and the song playing
+// in the room. Data comes from the ghostty-widget service; see
+// contrib/corner-widget/README.md.
+template $GhosttyCornerWidget: Adw.Bin {
+  halign: end;
+  valign: start;
+  can-focus: false;
+  can-target: false;
+  focusable: false;
+
+  Box {
+    styles [
+      "corner-widget",
+    ]
+
+    orientation: vertical;
+    halign: end;
+
+    Label date_label {
+      styles [
+        "corner-date",
+      ]
+
+      xalign: 1.0;
+    }
+
+    Label time_label {
+      styles [
+        "corner-time",
+      ]
+
+      xalign: 1.0;
+    }
+
+    Label weather_label {
+      styles [
+        "corner-weather",
+      ]
+
+      xalign: 1.0;
+    }
+
+    Box song_box {
+      styles [
+        "corner-song",
+      ]
+
+      orientation: vertical;
+      visible: false;
+      halign: end;
+
+      Box {
+        orientation: horizontal;
+        spacing: 8;
+        halign: end;
+
+        Box {
+          styles [
+            "corner-eq",
+          ]
+
+          orientation: horizontal;
+          spacing: 2;
+          valign: center;
+
+          Box eq1 {
+            valign: end;
+          }
+
+          Box eq2 {
+            valign: end;
+          }
+
+          Box eq3 {
+            valign: end;
+          }
+
+          Box eq4 {
+            valign: end;
+          }
+        }
+
+        Label song_label {
+          styles [
+            "corner-song-title",
+          ]
+
+          ellipsize: end;
+          max-width-chars: 32;
+          xalign: 1.0;
+        }
+      }
+
+      ProgressBar song_progress {
+        styles [
+          "corner-progress",
+        ]
+      }
+    }
+  }
+}

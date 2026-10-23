@@ -29,6 +29,7 @@ const Config = @import("config.zig").Config;
 const ResizeOverlay = @import("resize_overlay.zig").ResizeOverlay;
 const SearchOverlay = @import("search_overlay.zig").SearchOverlay;
 const KeyStateOverlay = @import("key_state_overlay.zig").KeyStateOverlay;
+const CornerWidget = @import("corner_widget.zig").CornerWidget;
 const ChildExited = @import("surface_child_exited.zig").SurfaceChildExited;
 const ClipboardConfirmationDialog = @import("clipboard_confirmation_dialog.zig").ClipboardConfirmationDialog;
 const TitleDialog = @import("title_dialog.zig").TitleDialog;
@@ -3564,6 +3565,7 @@ pub const Surface = extern struct {
             gobject.ext.ensureType(ResizeOverlay);
             gobject.ext.ensureType(SearchOverlay);
             gobject.ext.ensureType(KeyStateOverlay);
+            gobject.ext.ensureType(CornerWidget);
             gobject.ext.ensureType(ChildExited);
             gtk.Widget.Class.setTemplateFromResource(
                 class.as(gtk.Widget.Class),
