@@ -19,9 +19,9 @@ CITY = "Tuzla"
 COUNTRY_CODE = "BA"
 MIC = "alsa_input.pci-0000_00_1f.3-platform-sof_sdw.HiFi__Mic__source"  # laptop mic; "" = system default
 WEATHER_EVERY = 600   # seconds between weather updates
-LISTEN_EVERY = 30     # seconds between song checks
+LISTEN_EVERY = 10     # seconds between song checks (start to start)
 CLIP_SECONDS = 8      # length of each mic clip
-FORGET_AFTER = 3      # misses in a row before the song is cleared
+FORGET_AFTER = 6      # misses in a row before the song is cleared (~1 min)
 
 SONGREC = "re.fossplant.songrec"
 RUN_DIR = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "ghostty-widget")
@@ -204,10 +204,10 @@ def main():
                 if misses >= FORGET_AFTER:
                     for k in ("s_title", "s_artist", "s_pos0", "s_at", "s_len", "s_cover", "s_cover_rev"):
                         state.pop(k, None)
-            next_listen = time.time() + LISTEN_EVERY
+            next_listen = now + LISTEN_EVERY  # from when this check started
         state["updated"] = str(int(time.time()))
         write_state(state)
-        time.sleep(5)
+        time.sleep(1)
 
 
 if __name__ == "__main__":
