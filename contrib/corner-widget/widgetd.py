@@ -19,7 +19,7 @@ CITY = "Tuzla"
 COUNTRY_CODE = "BA"
 MIC = "alsa_input.pci-0000_00_1f.3-platform-sof_sdw.HiFi__Mic__source"  # laptop mic; "" = system default
 WEATHER_EVERY = 600   # seconds between weather updates
-LISTEN_EVERY = 60     # seconds between song checks
+LISTEN_EVERY = 30     # seconds between song checks
 CLIP_SECONDS = 8      # length of each mic clip
 FORGET_AFTER = 3      # misses in a row before the song is cleared
 
