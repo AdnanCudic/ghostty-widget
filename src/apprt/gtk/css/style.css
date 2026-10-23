@@ -184,58 +184,43 @@ label.resize-overlay {
 
 /*
  * Fork addition: corner widget (date, clock, weather, music).
- * Colours match the design: dim grey text, light clock, blue music.
+ * "Clay" design: Space Grotesk, warm orange accents.
  */
 .corner-widget {
-  margin: 14px 18px 0 0;
-  font-family: monospace;
-  color: #6b6a66;
+  margin: 16px 20px 0 0;
+  font-family: "Space Grotesk", sans-serif;
+  color: #9a9893;
 }
 
 .corner-date {
-  font-size: 11px;
+  font-size: 13px;
+  font-weight: 500;
   letter-spacing: 2px;
+  color: #d97757;
 }
 
 .corner-time {
-  font-size: 46px;
+  font-size: 60px;
   font-weight: 300;
-  color: #b8b6b0;
-  margin: -4px 0 -2px 0;
+  color: #f0eee6;
+  margin: -6px 0 -4px 0;
 }
 
 .corner-weather {
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .corner-song {
   margin-top: 14px;
 }
 
-.corner-song-title {
+.corner-artist {
   font-size: 12px;
-  color: #5a8fc4;
+  color: #9a9893;
 }
 
-.corner-eq > box {
-  min-width: 3px;
-  background-color: #5a8fc4;
-}
-
-progressbar.corner-progress {
-  margin-top: 6px;
-}
-
-progressbar.corner-progress trough,
-progressbar.corner-progress progress {
-  min-height: 2px;
-  border-radius: 0;
-}
-
-progressbar.corner-progress trough {
-  background-color: #1c2a38;
-}
-
-progressbar.corner-progress progress {
-  background-color: #5a8fc4;
+.corner-song-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #f0eee6;
 }

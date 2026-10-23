@@ -27,6 +27,7 @@ SONGREC = "re.fossplant.songrec"
 RUN_DIR = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "ghostty-widget")
 STATE = os.path.join(RUN_DIR, "state")
 CLIP = os.path.join(RUN_DIR, "clip.wav")
+COVER = os.path.join(RUN_DIR, "cover.png")
 CACHE_DIR = os.path.expanduser("~/.cache/ghostty-widget")
 GEO_CACHE = os.path.join(CACHE_DIR, "location.json")
 
@@ -111,7 +112,9 @@ def listen():
     if not track.get("title"):
         return {}
     offset = float((data.get("matches") or [{}])[0].get("offset", 0) or 0)
+    images = track.get("images") or {}
     return {
+        "cover_url": images.get("coverart") or images.get("background") or "",
         "s_title": track["title"],
         "s_artist": track.get("subtitle", ""),
         "s_pos0": str(round(offset)),           # song position at clip start, seconds
@@ -138,6 +141,30 @@ def song_length(title, artist):
     return None
 
 
+def fetch_cover(url):
+    """Download the album cover and shrink it to a 128px PNG. Returns the path or ""."""
+    if not url:
+        return ""
+    src = COVER + ".src"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "ghostty-widget/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as r, open(src, "wb") as f:
+            f.write(r.read())
+        subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-i", src, "-vf", "scale=128:128", COVER + ".tmp.png"],
+            check=True, timeout=30,
+        )
+        os.replace(COVER + ".tmp.png", COVER)
+        return COVER
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    finally:
+        try:
+            os.remove(src)
+        except OSError:
+            pass
+
+
 def write_state(state):
     tmp = STATE + ".tmp"
     with open(tmp, "w") as f:
@@ -162,17 +189,20 @@ def main():
         if now >= next_listen:
             song = listen()
             if song:
+                cover_url = song.pop("cover_url", "")
                 if song["s_title"] != state.get("s_title"):
                     state.pop("s_len", None)
                     length = song_length(song["s_title"], song["s_artist"])
                     if length:
                         song["s_len"] = str(length)
+                    song["s_cover"] = fetch_cover(cover_url)
+                    song["s_cover_rev"] = str(int(time.time()))  # tells the widget to reload
                 state.update(song)
                 misses = 0
             elif song == {}:
                 misses += 1
                 if misses >= FORGET_AFTER:
-                    for k in ("s_title", "s_artist", "s_pos0", "s_at", "s_len"):
+                    for k in ("s_title", "s_artist", "s_pos0", "s_at", "s_len", "s_cover", "s_cover_rev"):
                         state.pop(k, None)
             next_listen = time.time() + LISTEN_EVERY
         state["updated"] = str(int(time.time()))

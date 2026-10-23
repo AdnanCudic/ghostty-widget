@@ -40,6 +40,7 @@ template $GhosttyCornerWidget: Adw.Bin {
         "corner-weather",
       ]
 
+      use-markup: true;
       xalign: 1.0;
     }
 
@@ -48,39 +49,23 @@ template $GhosttyCornerWidget: Adw.Bin {
         "corner-song",
       ]
 
-      orientation: vertical;
+      orientation: horizontal;
+      spacing: 12;
       visible: false;
       halign: end;
 
       Box {
-        orientation: horizontal;
-        spacing: 8;
-        halign: end;
+        orientation: vertical;
+        valign: center;
 
-        Box {
+        Label artist_label {
           styles [
-            "corner-eq",
+            "corner-artist",
           ]
 
-          orientation: horizontal;
-          spacing: 2;
-          valign: center;
-
-          Box eq1 {
-            valign: end;
-          }
-
-          Box eq2 {
-            valign: end;
-          }
-
-          Box eq3 {
-            valign: end;
-          }
-
-          Box eq4 {
-            valign: end;
-          }
+          ellipsize: end;
+          max-width-chars: 28;
+          xalign: 1.0;
         }
 
         Label song_label {
@@ -89,15 +74,16 @@ template $GhosttyCornerWidget: Adw.Bin {
           ]
 
           ellipsize: end;
-          max-width-chars: 32;
+          max-width-chars: 28;
           xalign: 1.0;
         }
       }
 
-      ProgressBar song_progress {
-        styles [
-          "corner-progress",
-        ]
+      // Album cover as a record, with song progress as a ring around it.
+      DrawingArea vinyl {
+        content-width: 58;
+        content-height: 58;
+        valign: center;
       }
     }
   }
