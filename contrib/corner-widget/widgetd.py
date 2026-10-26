@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Background service for the Ghostty corner widget.
 
-Collects weather (Open-Meteo, no API key) and the song playing in the room
-(mic clip -> SongRec -> Shazam) and writes them to a small state file that
+Collects weather (Open-Meteo, no API key) and the music: what a player on
+this computer is playing (MPRIS, e.g. Spotify or a browser tab), or else
+what is playing in the room (mic clip -> SongRec -> Shazam). Writes them to a small state file that
 Ghostty's corner widget (src/apprt/gtk/class/corner_widget.zig) reads every
 second. Standard library only.
 """
 
 import json
 import os
+import signal
 import subprocess
 import time
 import urllib.parse
@@ -90,11 +92,25 @@ def listen():
     try:
         subprocess.run(["timeout", str(CLIP_SECONDS)] + cmd + [CLIP], capture_output=True)
         started = time.time() - CLIP_SECONDS
-        out = subprocess.run(
-            ["flatpak", "run", "--filesystem=xdg-run/ghostty-widget:ro", SONGREC,
+        # --nosocket=pulseaudio: SongRec only reads the file, and without this
+        # every run opens an audio-server connection. In its own session so
+        # a hung run can be killed whole (flatpak + bwrap + songrec); killing
+        # only `flatpak` left them behind and they used up the audio server's
+        # connection limit, breaking audio in other apps.
+        proc = subprocess.Popen(
+            ["flatpak", "run", "--nosocket=pulseaudio",
+             "--filesystem=xdg-run/ghostty-widget:ro", SONGREC,
              "recognize", "--json", CLIP],
-            capture_output=True, text=True, timeout=60,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            start_new_session=True,
         )
+        try:
+            stdout, stderr = proc.communicate(timeout=20)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait()
+            return None
+        out = subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
     except (OSError, subprocess.TimeoutExpired):
         return None
     finally:
@@ -122,6 +138,44 @@ def listen():
     }
 
 
+SONG_KEYS = ("s_title", "s_artist", "s_pos0", "s_at", "s_len", "s_cover", "s_cover_rev", "s_key", "s_src")
+
+
+def busctl_json(*args):
+    out = subprocess.run(["busctl", "--user", "--json=short", *args],
+                         capture_output=True, text=True, timeout=5)
+    return json.loads(out.stdout) if out.returncode == 0 and out.stdout else None
+
+
+def now_playing():
+    """What a media player on this computer is playing (MPRIS), or None."""
+    try:
+        names = [x["name"] for x in busctl_json("list") or []
+                 if x["name"].startswith("org.mpris.MediaPlayer2.")]
+        for name in names:
+            prop = lambda p: busctl_json("get-property", name, "/org/mpris/MediaPlayer2",
+                                         "org.mpris.MediaPlayer2.Player", p)
+            status = prop("PlaybackStatus")
+            if not status or status["data"] != "Playing":
+                continue
+            meta = {k: v["data"] for k, v in (prop("Metadata") or {}).get("data", {}).items()}
+            title = meta.get("xesam:title", "")
+            if not title:
+                continue
+            artist = meta.get("xesam:artist") or [""]
+            position = (prop("Position") or {}).get("data", 0) or 0
+            return {
+                "s_title": title,
+                "s_artist": ", ".join(artist) if isinstance(artist, list) else str(artist),
+                "s_len": round((meta.get("mpris:length") or 0) / 1e6),
+                "s_pos0": round(position / 1e6),
+                "art_url": meta.get("mpris:artUrl", ""),
+            }
+    except (OSError, ValueError, subprocess.SubprocessError, KeyError):
+        pass
+    return None
+
+
 def song_length(title, artist):
     """Song length in seconds from the iTunes Search API (free, no key), or None."""
     q = urllib.parse.urlencode({"term": f"{artist} {title}", "entity": "song", "limit": 10})
@@ -145,11 +199,13 @@ def fetch_cover(url):
     """Download the album cover and shrink it to a 128px PNG. Returns the path or ""."""
     if not url:
         return ""
-    src = COVER + ".src"
+    local = url.startswith("file://")
+    src = urllib.parse.unquote(url[len("file://"):]) if local else COVER + ".src"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "ghostty-widget/1.0"})
-        with urllib.request.urlopen(req, timeout=15) as r, open(src, "wb") as f:
-            f.write(r.read())
+        if not local:
+            req = urllib.request.Request(url, headers={"User-Agent": "ghostty-widget/1.0"})
+            with urllib.request.urlopen(req, timeout=15) as r, open(src, "wb") as f:
+                f.write(r.read())
         subprocess.run(
             ["ffmpeg", "-y", "-v", "error", "-i", src, "-vf", "scale=128:128", COVER + ".tmp.png"],
             check=True, timeout=30,
@@ -159,10 +215,11 @@ def fetch_cover(url):
     except (OSError, subprocess.SubprocessError):
         return ""
     finally:
-        try:
-            os.remove(src)
-        except OSError:
-            pass
+        if not local:
+            try:
+                os.remove(src)
+            except OSError:
+                pass
 
 
 def write_state(state):
@@ -186,7 +243,25 @@ def main():
                 next_weather = now + WEATHER_EVERY
             except Exception:
                 next_weather = now + 60  # offline: retry soon
-        if now >= next_listen:
+        np = now_playing()
+        if np:
+            # A player on this computer wins over the mic, and needs no Shazam.
+            art_url = np.pop("art_url")
+            key = f"{np['s_title']}|{np['s_artist']}|{art_url}"
+            if key != state.get("s_key"):
+                state["s_cover"] = fetch_cover(art_url)
+                state["s_cover_rev"] = str(int(now))  # tells the widget to reload
+                state["s_key"] = key
+            state.update({k: str(v) for k, v in np.items()})
+            state["s_at"] = str(int(now))
+            state["s_src"] = "player"
+            misses = 0
+        elif state.get("s_src") == "player":
+            # Player stopped or paused: clear it and go back to the mic.
+            for k in SONG_KEYS:
+                state.pop(k, None)
+            next_listen = now
+        elif now >= next_listen:
             song = listen()
             if song:
                 cover_url = song.pop("cover_url", "")
@@ -198,11 +273,12 @@ def main():
                     song["s_cover"] = fetch_cover(cover_url)
                     song["s_cover_rev"] = str(int(time.time()))  # tells the widget to reload
                 state.update(song)
+                state["s_src"] = "mic"
                 misses = 0
             elif song == {}:
                 misses += 1
                 if misses >= FORGET_AFTER:
-                    for k in ("s_title", "s_artist", "s_pos0", "s_at", "s_len", "s_cover", "s_cover_rev"):
+                    for k in SONG_KEYS:
                         state.pop(k, None)
             next_listen = now + LISTEN_EVERY  # from when this check started
         state["updated"] = str(int(time.time()))
