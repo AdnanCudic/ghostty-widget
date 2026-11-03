@@ -11,11 +11,13 @@ It has two parts:
   `$XDG_RUNTIME_DIR/ghostty-widget/state` once a second. It never takes
   input, so clicks and text selection go straight through to the terminal.
 - **The data service** (`widgetd.py`, run by `ghostty-widget.service`). It
-  gets the weather from Open-Meteo every 10 minutes and, once a minute,
-  records 8 seconds from the microphone and asks Shazam (through
-  [SongRec](https://flathub.org/apps/re.fossplant.songrec)) what is playing.
-  Clips are deleted straight after. Song lengths come from the iTunes Search
-  API.
+  gets the weather from Open-Meteo every 10 minutes and, every 10 seconds,
+  asks Shazam (through
+  [SongRec](https://flathub.org/apps/re.fossplant.songrec)) what is playing,
+  using the last 8 seconds from the microphone. The microphone stays open,
+  so GNOME's microphone indicator stays on; only those 8 seconds are kept
+  in memory, and each clip is deleted straight after. Song lengths come from
+  the iTunes Search API.
 
 ## Build and install (Ubuntu)
 

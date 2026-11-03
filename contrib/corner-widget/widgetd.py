@@ -6,15 +6,21 @@ this computer is playing (MPRIS, e.g. Spotify or a browser tab), or else
 what is playing in the room (mic clip -> SongRec -> Shazam). Writes them to a small state file that
 Ghostty's corner widget (src/apprt/gtk/class/corner_widget.zig) reads every
 second. Standard library only.
+
+The microphone stays open the whole time, keeping only the last few seconds
+in memory, so GNOME's microphone indicator stays on instead of flashing for
+every clip.
 """
 
 import json
 import os
 import signal
 import subprocess
+import threading
 import time
 import urllib.parse
 import urllib.request
+import wave
 
 # --- CONFIGURATION ---
 CITY = "Tuzla"
@@ -24,6 +30,9 @@ WEATHER_EVERY = 600   # seconds between weather updates
 LISTEN_EVERY = 10     # seconds between song checks (start to start)
 CLIP_SECONDS = 8      # length of each mic clip
 FORGET_AFTER = 6      # misses in a row before the song is cleared (~1 min)
+
+SAMPLE_RATE = 16000
+CLIP_BYTES = SAMPLE_RATE * 2 * CLIP_SECONDS  # mono s16
 
 SONGREC = "re.fossplant.songrec"
 RUN_DIR = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "ghostty-widget")
@@ -84,14 +93,58 @@ def weather():
     }
 
 
-def listen():
-    """Record a clip and ask Shazam. Returns song fields, {} for no match, None on error."""
-    cmd = ["pw-record", "--rate", "16000", "--channels", "1", "--format", "s16"]
-    if MIC:
-        cmd += ["--target", MIC]
+class MicStream:
+    """One pw-record kept running, holding the last CLIP_SECONDS of audio."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.buf = bytearray()
+        threading.Thread(target=self.run, daemon=True).start()
+
+    def run(self):
+        cmd = ["pw-record", "--rate", str(SAMPLE_RATE), "--channels", "1", "--format", "s16"]
+        if MIC:
+            cmd += ["--target", MIC]
+        cmd.append("-")  # stdout: a small AU header, then little-endian samples
+        while True:
+            try:
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            except OSError:
+                time.sleep(10)
+                continue
+            try:
+                head = proc.stdout.read(8)  # magic, data offset
+                if len(head) == 8:
+                    proc.stdout.read(int.from_bytes(head[4:8], "little") - 8)
+                    while chunk := proc.stdout.read(SAMPLE_RATE // 5):  # 0.1 s
+                        with self.lock:
+                            self.buf += chunk
+                            del self.buf[:-CLIP_BYTES]
+            finally:
+                proc.kill()
+                proc.wait()
+                with self.lock:
+                    self.buf.clear()
+            time.sleep(5)  # stream ended (audio server restart, mic gone): reopen
+
+    def clip(self):
+        """The last CLIP_SECONDS of audio, or None until that much is buffered."""
+        with self.lock:
+            return bytes(self.buf) if len(self.buf) == CLIP_BYTES else None
+
+
+def listen(mic):
+    """Ask Shazam about the last clip. Returns song fields, {} for no match, None on error."""
+    audio = mic.clip()
+    if audio is None:
+        return None
+    started = time.time() - CLIP_SECONDS
     try:
-        subprocess.run(["timeout", str(CLIP_SECONDS)] + cmd + [CLIP], capture_output=True)
-        started = time.time() - CLIP_SECONDS
+        with wave.open(CLIP, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(SAMPLE_RATE)
+            w.writeframes(audio)
         # --nosocket=pulseaudio: SongRec only reads the file, and without this
         # every run opens an audio-server connection. In its own session so
         # a hung run can be killed whole (flatpak + bwrap + songrec); killing
@@ -111,7 +164,7 @@ def listen():
             proc.wait()
             return None
         out = subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, wave.Error, subprocess.TimeoutExpired):
         return None
     finally:
         try:
@@ -232,6 +285,7 @@ def write_state(state):
 
 def main():
     os.makedirs(RUN_DIR, exist_ok=True)
+    mic = MicStream()
     state = {"updated": str(int(time.time()))}
     next_weather = next_listen = 0.0
     misses = 0
@@ -262,7 +316,7 @@ def main():
                 state.pop(k, None)
             next_listen = now
         elif now >= next_listen:
-            song = listen()
+            song = listen(mic)
             if song:
                 cover_url = song.pop("cover_url", "")
                 if song["s_title"] != state.get("s_title"):
