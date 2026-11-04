@@ -3891,6 +3891,9 @@ pub fn mouseButtonCallback(
         self.renderer_state.mouse.click = .{ pos.x, pos.y };
         self.renderer_state.mouse.click_seq +%= 1;
     }
+    // Wake the renderer so the click reaches the shader on the next frame
+    // instead of whenever the terminal next changes (e.g. a cursor blink).
+    if (button == .left and action == .press) self.queueRender() catch {};
 
     // Always show the mouse again if it is hidden
     if (self.mouse.hidden) self.showMouse();
