@@ -29,6 +29,7 @@ const Tab = @import("tab.zig").Tab;
 const DebugWarning = @import("debug_warning.zig").DebugWarning;
 const CommandPalette = @import("command_palette.zig").CommandPalette;
 const WeakRef = @import("../weak_ref.zig").WeakRef;
+const remote = @import("../remote.zig");
 
 const log = std.log.scoped(.gtk_ghostty_window);
 
@@ -263,6 +264,9 @@ pub const Window = extern struct {
         toolbar: *adw.ToolbarView,
         toast_overlay: *adw.ToastOverlay,
 
+        /// Fork addition: re-checks which tabs are SSH sessions.
+        remote_tabs_timer: ?c_uint = null,
+
         pub var offset: c_int = 0;
     };
 
@@ -291,6 +295,9 @@ pub const Window = extern struct {
 
     fn init(self: *Self, _: *Class) callconv(.c) void {
         gtk.Widget.initTemplate(self.as(gtk.Widget));
+
+        // Fork addition: mark SSH tabs (see markRemoteTabs).
+        self.private().remote_tabs_timer = glib.timeoutAdd(1000, onRemoteTabsTick, self);
 
         // If our configuration is null then we get the configuration
         // from the application.
@@ -1227,6 +1234,13 @@ pub const Window = extern struct {
     fn dispose(self: *Self) callconv(.c) void {
         const priv = self.private();
 
+        if (priv.remote_tabs_timer) |v| {
+            if (glib.Source.remove(v) == 0) {
+                log.warn("unable to remove remote tabs timer", .{});
+            }
+            priv.remote_tabs_timer = null;
+        }
+
         priv.command_palette.set(null);
 
         if (priv.config) |v| {
@@ -1245,6 +1259,48 @@ pub const Window = extern struct {
             Class.parent,
             self.as(Parent),
         );
+    }
+
+    /// Fork addition: add the `remote` CSS class to the tab pills whose
+    /// title looks like an SSH session, so they can be styled red.
+    ///
+    /// libadwaita doesn't expose its tab widgets, so we walk the tab bar for
+    /// `tab` nodes; they appear in the same order as the pages.
+    fn markRemoteTabs(self: *Self) void {
+        const priv = self.private();
+        const n_pages = priv.tab_view.getNPages();
+        var index: c_int = 0;
+        markRemoteTabsIn(priv.tab_bar.as(gtk.Widget), priv.tab_view, n_pages, &index);
+    }
+
+    fn markRemoteTabsIn(
+        widget: *gtk.Widget,
+        view: *adw.TabView,
+        n_pages: c_int,
+        index: *c_int,
+    ) void {
+        var child = widget.getFirstChild();
+        while (child) |c| : (child = c.getNextSibling()) {
+            if (std.mem.eql(u8, std.mem.span(c.getCssName()), "tab")) {
+                if (index.* < n_pages) {
+                    const page = view.getNthPage(index.*);
+                    if (remote.isRemoteTitle(std.mem.span(page.getTitle()))) {
+                        c.addCssClass("remote");
+                    } else {
+                        c.removeCssClass("remote");
+                    }
+                }
+                index.* += 1;
+                continue;
+            }
+            markRemoteTabsIn(c, view, n_pages, index);
+        }
+    }
+
+    fn onRemoteTabsTick(ud: ?*anyopaque) callconv(.c) c_int {
+        const self: *Self = @ptrCast(@alignCast(ud orelse return 0));
+        self.markRemoteTabs();
+        return 1;
     }
 
     fn finalize(self: *Self) callconv(.c) void {

@@ -40,6 +40,12 @@ pub const Mouse = struct {
     /// This could really just be mods in general and we probably will
     /// move it out of mouse state at some point.
     mods: inputpkg.Mods = .{},
+
+    /// Fork addition: the last left click in surface pixels (top-left
+    /// origin) and a counter that bumps on every click. Custom shaders
+    /// receive it as iMouse.
+    click: [2]f32 = .{ 0, 0 },
+    click_seq: u32 = 0,
 };
 
 /// The pre-edit state. See Surface.preeditCallback for more information.

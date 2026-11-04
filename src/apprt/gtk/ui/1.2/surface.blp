@@ -194,6 +194,19 @@ Overlay terminal_page {
   }
 
   [overlay]
+  // Fork addition: thin red border while this terminal is in an SSH session.
+  Box {
+    styles [
+      "remote-border",
+    ]
+
+    visible: bind $is_remote_title(template.title) as <bool>;
+    can-focus: false;
+    can-target: false;
+    focusable: false;
+  }
+
+  [overlay]
   // Fork addition: date, clock, weather and music in the top-right corner.
   $GhosttyCornerWidget {}
 

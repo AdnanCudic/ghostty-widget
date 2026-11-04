@@ -224,3 +224,8 @@ label.resize-overlay {
   font-weight: 500;
   color: #f0eee6;
 }
+
+/* Fork addition: thin red border around a terminal in an SSH session. */
+.remote-border {
+  border: 2px solid #e24b4a;
+}

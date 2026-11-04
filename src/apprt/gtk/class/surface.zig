@@ -30,6 +30,7 @@ const ResizeOverlay = @import("resize_overlay.zig").ResizeOverlay;
 const SearchOverlay = @import("search_overlay.zig").SearchOverlay;
 const KeyStateOverlay = @import("key_state_overlay.zig").KeyStateOverlay;
 const CornerWidget = @import("corner_widget.zig").CornerWidget;
+const remote = @import("../remote.zig");
 const ChildExited = @import("surface_child_exited.zig").SurfaceChildExited;
 const ClipboardConfirmationDialog = @import("clipboard_confirmation_dialog.zig").ClipboardConfirmationDialog;
 const TitleDialog = @import("title_dialog.zig").TitleDialog;
@@ -822,6 +823,16 @@ pub const Surface = extern struct {
 
     /// Callback used to determine whether unfocused-split-fill / unfocused-split-opacity
     /// should be applied to the surface
+    /// Fork addition: whether this surface's title looks like an SSH
+    /// session; shows the red remote border.
+    fn closureIsRemoteTitle(
+        _: *Self,
+        title: ?[*:0]const u8,
+    ) callconv(.c) c_int {
+        const t = title orelse return 0;
+        return @intFromBool(remote.isRemoteTitle(std.mem.span(t)));
+    }
+
     fn closureShouldUnfocusedSplitBeShown(
         _: *Self,
         search_active: c_int,
@@ -3625,6 +3636,7 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("notify_vadjustment", &propVAdjustment);
             class.bindTemplateCallback("should_border_be_shown", &closureShouldBorderBeShown);
             class.bindTemplateCallback("should_unfocused_split_be_shown", &closureShouldUnfocusedSplitBeShown);
+            class.bindTemplateCallback("is_remote_title", &closureIsRemoteTitle);
             class.bindTemplateCallback("search_stop", &searchStop);
             class.bindTemplateCallback("search_changed", &searchChanged);
             class.bindTemplateCallback("search_next_match", &searchNextMatch);

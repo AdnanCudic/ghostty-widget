@@ -42,13 +42,25 @@ systemctl --user enable --now ghostty-widget
 
 City, microphone and timings are set at the top of `widgetd.py`.
 
+## Other fork additions
+
+- **Shader inputs.** Stock Ghostty declares `iDate` and `iMouse` for custom
+  shaders but leaves them at zero. Here `iDate` is (year, month 0-11, day,
+  local seconds since midnight) and `iMouse` is (x, y, iTime of the click, 1)
+  for the latest left click, y from the bottom like `gl_FragCoord`.
+- **SSH awareness.** A terminal whose title looks like an SSH session
+  (`ssh ...`, `mosh ...`, or `user@host` for a host other than this
+  computer) gets a thin red border, and its tab gets the `remote` CSS class
+  so it can be styled through `gtk-custom-css` (`src/apprt/gtk/remote.zig`).
+
 ## Updating to a new Ghostty release
 
-The fork's changes live on the `widget` branch on top of an upstream tag.
-
 ```sh
-git remote add upstream https://github.com/ghostty-org/ghostty.git  # once
-git fetch upstream --tags
-git rebase --onto vX.Y.Z v1.3.1 widget   # replace with the new and old tags
-zig build -Doptimize=ReleaseFast -p ~/.local
+contrib/update-fork.sh
 ```
+
+It fetches Ghostty's releases, replays the fork's commits onto the newest
+`vX.Y.Z` tag, installs the Zig version that release needs, builds, installs
+to `~/.local` and pushes. If the fork's changes conflict with the release it
+stops and explains how to continue. Then quit Ghostty completely
+(`pkill -x ghostty`) and reopen it.

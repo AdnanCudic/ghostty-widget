@@ -3883,6 +3883,15 @@ pub fn mouseButtonCallback(
     // Always record our latest mouse state
     self.mouse.click_state[@intCast(@intFromEnum(button))] = action;
 
+    // Fork addition: pass left clicks to custom shaders (iMouse).
+    if (button == .left and action == .press) click: {
+        const pos = self.rt_surface.getCursorPos() catch break :click;
+        self.renderer_state.mutex.lock();
+        defer self.renderer_state.mutex.unlock();
+        self.renderer_state.mouse.click = .{ pos.x, pos.y };
+        self.renderer_state.mouse.click_seq +%= 1;
+    }
+
     // Always show the mouse again if it is hidden
     if (self.mouse.hidden) self.showMouse();
 
