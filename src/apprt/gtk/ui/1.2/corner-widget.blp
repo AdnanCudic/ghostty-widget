@@ -4,14 +4,17 @@ using Adw 1;
 // Corner widget (fork addition): date, clock, weather and the song playing
 // in the room. Data comes from the ghostty-widget service; see
 // contrib/corner-widget/README.md.
+//
+// Only the record and the open lyrics sheet take input. Everything else lets
+// clicks through to the terminal: labels have can-target off, and the boxes
+// are $GhosttyPassBox, a Box that never claims its own empty space.
 template $GhosttyCornerWidget: Adw.Bin {
   halign: end;
   valign: start;
   can-focus: false;
-  can-target: false;
   focusable: false;
 
-  Box {
+  $GhosttyPassBox {
     styles [
       "corner-widget",
     ]
@@ -24,6 +27,7 @@ template $GhosttyCornerWidget: Adw.Bin {
         "corner-date",
       ]
 
+      can-target: false;
       xalign: 1.0;
     }
 
@@ -32,6 +36,7 @@ template $GhosttyCornerWidget: Adw.Bin {
         "corner-time",
       ]
 
+      can-target: false;
       xalign: 1.0;
     }
 
@@ -40,11 +45,12 @@ template $GhosttyCornerWidget: Adw.Bin {
         "corner-weather",
       ]
 
+      can-target: false;
       use-markup: true;
       xalign: 1.0;
     }
 
-    Box song_box {
+    $GhosttyPassBox song_box {
       styles [
         "corner-song",
       ]
@@ -54,7 +60,7 @@ template $GhosttyCornerWidget: Adw.Bin {
       visible: false;
       halign: end;
 
-      Box {
+      $GhosttyPassBox {
         orientation: vertical;
         valign: center;
 
@@ -63,6 +69,7 @@ template $GhosttyCornerWidget: Adw.Bin {
             "corner-artist",
           ]
 
+          can-target: false;
           ellipsize: end;
           max-width-chars: 28;
           xalign: 1.0;
@@ -73,6 +80,7 @@ template $GhosttyCornerWidget: Adw.Bin {
             "corner-song-title",
           ]
 
+          can-target: false;
           ellipsize: end;
           max-width-chars: 28;
           xalign: 1.0;
@@ -80,10 +88,45 @@ template $GhosttyCornerWidget: Adw.Bin {
       }
 
       // Album cover as a record, with song progress as a ring around it.
+      // Click it to show or hide the lyrics.
       DrawingArea vinyl {
         content-width: 58;
         content-height: 58;
         valign: center;
+
+        GestureClick {
+          released => $vinyl_clicked();
+        }
+      }
+    }
+
+    // Lyrics sheet, hidden until the record is clicked. Scrollable; when
+    // the lyrics are timed it follows the song, and snaps back to the
+    // current line a few seconds after you scroll away.
+    Revealer lyrics_revealer {
+      transition-type: slide_down;
+      transition-duration: 250;
+      reveal-child: false;
+      halign: end;
+
+      ScrolledWindow lyrics_scroll {
+        styles [
+          "corner-lyrics",
+        ]
+
+        hscrollbar-policy: never;
+        width-request: 260;
+        height-request: 190;
+
+        EventControllerScroll {
+          flags: vertical;
+          propagation-phase: capture;
+          scroll => $lyrics_scrolled();
+        }
+
+        Box lyrics_box {
+          orientation: vertical;
+        }
       }
     }
   }

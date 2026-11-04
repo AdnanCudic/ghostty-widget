@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Background service for the Ghostty corner widget.
 
-Collects weather (Open-Meteo, no API key) and the music: what a player on
+Collects weather (Open-Meteo, no API key), the music and its lyrics: what a player on
 this computer is playing (MPRIS, e.g. Spotify or a browser tab), or else
-what is playing in the room (mic clip -> SongRec -> Shazam). Writes them to a small state file that
+what is playing in the room (mic clip -> SongRec -> Shazam). Lyrics come
+from LRCLIB (no API key), timed when available. Writes them to a small state file that
 Ghostty's corner widget (src/apprt/gtk/class/corner_widget.zig) reads every
 second. Standard library only.
 
@@ -13,7 +14,9 @@ every clip.
 """
 
 import json
+import hashlib
 import os
+import re
 import signal
 import subprocess
 import threading
@@ -39,8 +42,10 @@ RUN_DIR = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "ghostty-widge
 STATE = os.path.join(RUN_DIR, "state")
 CLIP = os.path.join(RUN_DIR, "clip.wav")
 COVER = os.path.join(RUN_DIR, "cover.png")
+LYRICS = os.path.join(RUN_DIR, "lyrics")
 CACHE_DIR = os.path.expanduser("~/.cache/ghostty-widget")
 GEO_CACHE = os.path.join(CACHE_DIR, "location.json")
+LYRICS_CACHE = os.path.join(CACHE_DIR, "lyrics")
 
 WMO = {  # weather code -> (symbol, words)
     0: ("☀", "clear"), 1: ("☀", "mostly clear"), 2: ("☁", "partly cloudy"), 3: ("☁", "overcast"),
@@ -188,10 +193,13 @@ def listen(mic):
         "s_artist": track.get("subtitle", ""),
         "s_pos0": str(round(offset)),           # song position at clip start, seconds
         "s_at": str(round(started)),            # unix time of clip start
+        "s_pos_ms": str(round(offset * 1000)),  # the same two in milliseconds,
+        "s_at_ms": str(round(started * 1000)),  # for following the lyrics
     }
 
 
-SONG_KEYS = ("s_title", "s_artist", "s_pos0", "s_at", "s_len", "s_cover", "s_cover_rev", "s_key", "s_src")
+SONG_KEYS = ("s_title", "s_artist", "s_pos0", "s_at", "s_pos_ms", "s_at_ms", "s_len",
+             "s_cover", "s_cover_rev", "s_key", "s_src", "s_lyrics_rev")
 
 
 def busctl_json(*args):
@@ -217,11 +225,14 @@ def now_playing():
                 continue
             artist = meta.get("xesam:artist") or [""]
             position = (prop("Position") or {}).get("data", 0) or 0
+            read_at = time.time()
             return {
                 "s_title": title,
                 "s_artist": ", ".join(artist) if isinstance(artist, list) else str(artist),
                 "s_len": round((meta.get("mpris:length") or 0) / 1e6),
                 "s_pos0": round(position / 1e6),
+                "s_pos_ms": round(position / 1e3),
+                "s_at_ms": round(read_at * 1000),
                 "art_url": meta.get("mpris:artUrl", ""),
             }
     except (OSError, ValueError, subprocess.SubprocessError, KeyError):
@@ -275,6 +286,103 @@ def fetch_cover(url):
                 pass
 
 
+# Words that YouTube-style titles add around the song name.
+VIDEO_WORDS = re.compile(
+    r"\s*[(\[][^)\]]*\b(official|video|audio|lyrics?|visuali[sz]er|remaster(ed)?|hd|4k|mv|live)\b[^)\]]*[)\]]",
+    re.IGNORECASE)
+
+
+def lyric_candidates(title, artist):
+    """(title, artist) pairs to try, cleanest first."""
+    t = VIDEO_WORDS.sub("", title).strip()
+    a = re.sub(r"\s*(- Topic|VEVO)$", "", artist).strip()
+    out = [(t, a)]
+    if " - " in t:  # "Artist - Song" uploaded by some channel
+        left, right = t.split(" - ", 1)
+        out.append((right.strip(), left.strip()))
+    return out
+
+
+def find_lyrics(title, artist, length):
+    """("synced", [(ms, line)]), ("plain", [line]), ("instrumental", []) or ("none", [])."""
+    best = None
+    for t, a in lyric_candidates(title, artist):
+        if not t:
+            continue
+        q = urllib.parse.urlencode({"track_name": t, "artist_name": a} if a else {"q": t})
+        try:
+            res = get_json(f"https://lrclib.net/api/search?{q}")
+        except Exception:
+            continue
+        if length:  # skip other versions of the song (live, extended, ...)
+            res = [r for r in res if abs((r.get("duration") or length) - length) <= 8] or res
+        for r in res:
+            if r.get("syncedLyrics"):
+                best = r
+                break
+            if best is None and (r.get("plainLyrics") or r.get("instrumental")):
+                best = r
+        if best and best.get("syncedLyrics"):
+            break
+    if not best:
+        return "none", []
+    if best.get("syncedLyrics"):
+        lines = []
+        for raw in best["syncedLyrics"].splitlines():
+            m = re.match(r"\[(\d+):(\d+(?:\.\d+)?)\](.*)", raw)
+            if m:
+                ms = round((int(m[1]) * 60 + float(m[2])) * 1000)
+                lines.append((ms, m[3].strip()))
+        return "synced", lines
+    if best.get("instrumental"):
+        return "instrumental", []
+    return "plain", best["plainLyrics"].splitlines()
+
+
+class Lyrics:
+    """Looks up the lyrics of each new song in the background and writes
+    them to LYRICS: a first line saying synced/plain/instrumental/none, then
+    one line per lyric line ("milliseconds<TAB>text" when synced)."""
+
+    def __init__(self):
+        self.key = None
+
+    def update(self, state):
+        if not state.get("s_title"):
+            self.key = None  # song cleared (with its s_lyrics_rev): fetch again if it returns
+            return
+        key = f"{state['s_title']}|{state.get('s_artist', '')}"
+        if key == self.key:
+            return
+        self.key = key
+        args = (key, state["s_title"], state.get("s_artist", ""), int(state.get("s_len") or 0), state)
+        threading.Thread(target=self.fetch, args=args, daemon=True).start()
+
+    def fetch(self, key, title, artist, length, state):
+        cache = os.path.join(LYRICS_CACHE, hashlib.sha1(key.encode()).hexdigest() + ".json")
+        try:
+            with open(cache) as f:
+                kind, lines = json.load(f)
+        except (OSError, ValueError):
+            kind, lines = find_lyrics(title, artist, length)
+            if kind != "none":  # retry misses next time, the site grows
+                os.makedirs(LYRICS_CACHE, exist_ok=True)
+                with open(cache, "w") as f:
+                    json.dump([kind, lines], f)
+        if key != self.key:
+            return  # the song changed meanwhile
+        tmp = LYRICS + ".tmp"
+        with open(tmp, "w") as f:
+            f.write(kind + "\n")
+            for line in lines:
+                if kind == "synced":
+                    f.write(f"{line[0]}\t{line[1]}\n")
+                else:
+                    f.write(line.replace("\t", " ") + "\n")
+        os.replace(tmp, LYRICS)
+        state["s_lyrics_rev"] = str(time.time_ns())  # tells the widget to reload
+
+
 def write_state(state):
     tmp = STATE + ".tmp"
     with open(tmp, "w") as f:
@@ -286,6 +394,7 @@ def write_state(state):
 def main():
     os.makedirs(RUN_DIR, exist_ok=True)
     mic = MicStream()
+    lyrics = Lyrics()
     state = {"updated": str(int(time.time()))}
     next_weather = next_listen = 0.0
     misses = 0
@@ -335,8 +444,9 @@ def main():
                     for k in SONG_KEYS:
                         state.pop(k, None)
             next_listen = now + LISTEN_EVERY  # from when this check started
+        lyrics.update(state)
         state["updated"] = str(int(time.time()))
-        write_state(state)
+        write_state(dict(state))
         time.sleep(1)
 
 

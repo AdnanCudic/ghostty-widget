@@ -3,13 +3,19 @@
 This fork of Ghostty adds a small widget to the top-right corner of every
 terminal: the date, a big clock, the weather and the song playing in the room.
 
+Click the record (the round album cover) to show the song's lyrics below
+it, and click it again to hide them. The sheet scrolls; when the lyrics are
+timed it follows the song, highlighting the current line, and returns to it
+4 seconds after you scroll away.
+
 It has two parts:
 
 - **The widget** (`src/apprt/gtk/class/corner_widget.zig`,
   `src/apprt/gtk/ui/1.2/corner-widget.blp`, styles at the end of
   `src/apprt/gtk/css/style.css`). It only displays data, re-reading
-  `$XDG_RUNTIME_DIR/ghostty-widget/state` once a second. It never takes
-  input, so clicks and text selection go straight through to the terminal.
+  `$XDG_RUNTIME_DIR/ghostty-widget/state` once a second. Only the record and the
+  open lyrics sheet take input; clicks and text selection anywhere else go
+  straight through to the terminal.
 - **The data service** (`widgetd.py`, run by `ghostty-widget.service`). It
   gets the weather from Open-Meteo every 10 minutes and, every 10 seconds,
   asks Shazam (through
@@ -17,7 +23,8 @@ It has two parts:
   using the last 8 seconds from the microphone. The microphone stays open,
   so GNOME's microphone indicator stays on; only those 8 seconds are kept
   in memory, and each clip is deleted straight after. Song lengths come from
-  the iTunes Search API.
+  the iTunes Search API, and lyrics from [LRCLIB](https://lrclib.net)
+  (cached in `~/.cache/ghostty-widget/lyrics`).
 
 ## Build and install (Ubuntu)
 

@@ -240,3 +240,42 @@ label.resize-overlay {
   padding: 1px 12px 3px 12px;
   border-radius: 0 0 7px 7px;
 }
+
+/* Fork addition: lyrics sheet under the corner widget's record. */
+.corner-lyrics {
+  margin-top: 12px;
+  background-color: rgba(0, 0, 0, 0.88);
+  border-radius: 8px;
+}
+
+.corner-lyrics > viewport,
+.corner-lyrics box {
+  background-color: transparent;
+}
+
+.corner-lyrics scrollbar slider {
+  background-color: #4a2a20;
+  min-width: 3px;
+}
+
+.lyric {
+  font-size: 13px;
+  color: #9a9893;
+  padding: 3px 10px 3px 0;
+  border-right: 2px solid transparent;
+  transition: color 300ms ease;
+}
+
+.lyric-past {
+  color: #5f5e5a;
+}
+
+.lyric-current {
+  color: #f0eee6;
+  border-right-color: #d97757;
+}
+
+.lyric-note {
+  color: #6b6a66;
+  font-size: 12px;
+}
