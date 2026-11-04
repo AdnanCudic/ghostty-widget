@@ -30,6 +30,10 @@ preedit: ?Preedit = null,
 /// need about the mouse.
 mouse: Mouse = .{},
 
+/// Fork addition: whether the surface is in an SSH session, for the
+/// iRemote custom shader uniform.
+remote: bool = false,
+
 pub const Mouse = struct {
     /// The point on the viewport where the mouse currently is. We use
     /// viewport points to avoid the complexity of mapping the mouse to

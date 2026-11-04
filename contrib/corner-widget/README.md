@@ -47,11 +47,14 @@ City, microphone and timings are set at the top of `widgetd.py`.
 - **Shader inputs.** Stock Ghostty declares `iDate` and `iMouse` for custom
   shaders but leaves them at zero. Here `iDate` is (year, month 0-11, day,
   local seconds since midnight) and `iMouse` is (x, y, iTime of the click, 1)
-  for the latest left click, y from the bottom like `gl_FragCoord`.
+  for the latest left click, y from the bottom like `gl_FragCoord`, and
+  `iRemote` (below) is new.
 - **SSH awareness.** A terminal whose title looks like an SSH session
   (`ssh ...`, `mosh ...`, or `user@host` for a host other than this
-  computer) gets a thin red border, and its tab gets the `remote` CSS class
-  so it can be styled through `gtk-custom-css` (`src/apprt/gtk/remote.zig`).
+  computer) gets a red strip along the top with the server name hanging
+  from it, its tab gets the `remote` CSS class so it can be styled through
+  `gtk-custom-css`, and custom shaders get `iRemote.x = 1`
+  (`src/apprt/gtk/remote.zig`).
 
 ## Updating to a new Ghostty release
 

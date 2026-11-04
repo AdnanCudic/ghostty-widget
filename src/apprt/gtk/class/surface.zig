@@ -833,6 +833,16 @@ pub const Surface = extern struct {
         return @intFromBool(remote.isRemoteTitle(std.mem.span(t)));
     }
 
+    /// Fork addition: the server name shown in the remote host tab.
+    fn closureRemoteHost(
+        _: *Self,
+        title: ?[*:0]const u8,
+    ) callconv(.c) ?[*:0]const u8 {
+        const t = title orelse return null;
+        const host = remote.remoteHost(std.mem.span(t)) orelse return null;
+        return glib.ext.dupeZ(u8, host);
+    }
+
     fn closureShouldUnfocusedSplitBeShown(
         _: *Self,
         search_active: c_int,
@@ -1999,6 +2009,11 @@ pub const Surface = extern struct {
         priv.title = null;
         if (title) |v| priv.title = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.title.impl.param_spec);
+
+        // Fork addition: let custom shaders know (iRemote).
+        if (self.core()) |surface| surface.setRemote(
+            if (title) |v| remote.isRemoteTitle(v) else false,
+        );
     }
 
     /// Overridden title. This will be generally be shown over the title
@@ -3637,6 +3652,7 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("should_border_be_shown", &closureShouldBorderBeShown);
             class.bindTemplateCallback("should_unfocused_split_be_shown", &closureShouldUnfocusedSplitBeShown);
             class.bindTemplateCallback("is_remote_title", &closureIsRemoteTitle);
+            class.bindTemplateCallback("remote_host", &closureRemoteHost);
             class.bindTemplateCallback("search_stop", &searchStop);
             class.bindTemplateCallback("search_changed", &searchChanged);
             class.bindTemplateCallback("search_next_match", &searchNextMatch);

@@ -775,6 +775,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .cursor_text = @splat(0),
                     .selection_background_color = @splat(0),
                     .selection_foreground_color = @splat(0),
+                    .remote = @splat(0),
                 },
                 .bg_image_buffer = undefined,
 
@@ -1162,6 +1163,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const Critical = struct {
                 links: terminal.RenderState.CellSet,
                 mouse: renderer.State.Mouse,
+                remote: bool,
                 preedit: ?renderer.State.Preedit,
                 scrollbar: terminal.Scrollbar,
                 overlay_features: []const Overlay.Feature,
@@ -1279,6 +1281,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 break :critical .{
                     .links = links,
                     .mouse = state.mouse,
+                    .remote = state.remote,
                     .preedit = preedit,
                     .scrollbar = scrollbar,
                     .overlay_features = overlay_features,
@@ -1288,6 +1291,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Fork addition: remember the latest click for custom shaders.
             self.custom_shader_click = critical.mouse.click;
             self.custom_shader_click_seq = critical.mouse.click_seq;
+            self.custom_shader_uniforms.remote = .{ @floatFromInt(@intFromBool(critical.remote)), 0, 0, 0 };
 
             // Outside the critical area we can update our links to contain
             // our regex results.

@@ -2415,6 +2415,18 @@ pub fn setFontSize(self: *Surface, size: font.face.DesiredSize) !void {
 /// This queues a render operation with the renderer thread. The render
 /// isn't guaranteed to happen immediately but it will happen as soon as
 /// practical.
+/// Fork addition: whether this surface is in an SSH session (decided by
+/// the apprt from the title). Custom shaders receive it as iRemote.
+pub fn setRemote(self: *Surface, value: bool) void {
+    {
+        self.renderer_state.mutex.lock();
+        defer self.renderer_state.mutex.unlock();
+        if (self.renderer_state.remote == value) return;
+        self.renderer_state.remote = value;
+    }
+    self.queueRender() catch {};
+}
+
 fn queueRender(self: *Surface) !void {
     try self.renderer_thread.wakeup.notify();
 }

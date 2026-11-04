@@ -194,16 +194,30 @@ Overlay terminal_page {
   }
 
   [overlay]
-  // Fork addition: thin red border while this terminal is in an SSH session.
+  // Fork addition: while this terminal is in an SSH session, a red strip
+  // along the top with the server name hanging from it.
   Box {
-    styles [
-      "remote-border",
-    ]
-
+    orientation: vertical;
+    valign: start;
     visible: bind $is_remote_title(template.title) as <bool>;
     can-focus: false;
     can-target: false;
     focusable: false;
+
+    Box {
+      styles [
+        "remote-strip",
+      ]
+    }
+
+    Label {
+      styles [
+        "remote-host",
+      ]
+
+      halign: center;
+      label: bind $remote_host(template.title) as <string>;
+    }
   }
 
   [overlay]

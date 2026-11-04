@@ -28,6 +28,8 @@ layout(binding = 1, std140) uniform Globals {
     uniform vec3  iCursorText;
     uniform vec3  iSelectionForegroundColor;
     uniform vec3  iSelectionBackgroundColor;
+    // Fork addition: iRemote.x = 1.0 while this terminal is in an SSH session.
+    uniform vec4  iRemote;
 };
 
 #define CURSORSTYLE_BLOCK        0
