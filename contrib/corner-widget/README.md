@@ -52,6 +52,8 @@ Then put your settings in `~/.config/ghostty-widget/env`, for example:
 WIDGET_CITY=Berlin
 WIDGET_COUNTRY=DE
 WIDGET_MIC=default
+WIDGET_FOG=on
+WIDGET_RIPPLE=on
 ```
 
 - `WIDGET_CITY` / `WIDGET_COUNTRY`: where the weather is for. Leave the
@@ -66,6 +68,23 @@ WIDGET_MIC=default
 systemctl --user daemon-reload
 systemctl --user enable --now ghostty-widget
 ```
+
+- `WIDGET_FOG`: the glyph fog background (`glyph_fog.glsl`): faint streams
+  of characters, blue by day and red in the evening, leaning red over SSH.
+  `off` turns it off. On by default.
+- `WIDGET_RIPPLE`: the fog's faint ripple where you click. `off` keeps the
+  fog without it. On by default.
+
+For the fog, also copy the shader and add one line to Ghostty's config
+(`~/.config/ghostty/config`):
+
+```sh
+cp contrib/corner-widget/glyph_fog.glsl ~/.local/share/ghostty-widget/
+echo 'config-file = ?~/.local/share/ghostty-widget/shaders.conf' >> ~/.config/ghostty/config
+```
+
+The service writes that file and makes Ghostty reload when the fog
+settings change.
 
 After changing the settings: `systemctl --user restart ghostty-widget`.
 Timings are at the top of `widgetd.py`.

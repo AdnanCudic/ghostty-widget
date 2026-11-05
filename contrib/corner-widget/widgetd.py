@@ -20,6 +20,13 @@ Settings come from the environment (the service reads them from
   WIDGET_MIC      microphone for recognising music in the room: a PipeWire
                   source name (pactl list short sources), or "default";
                   unset = no microphone, only what this computer plays
+  WIDGET_FOG      on/off: the glyph fog background shader (default on)
+  WIDGET_RIPPLE   on/off: the fog's faint ripple where you click (default on)
+
+For the fog, Ghostty's config needs this line (the service writes that file
+and tells Ghostty to reload when the settings change):
+
+  config-file = ?~/.local/share/ghostty-widget/shaders.conf
 """
 
 import json
@@ -38,6 +45,15 @@ import wave
 CITY = os.environ.get("WIDGET_CITY", "").strip()
 COUNTRY_CODE = os.environ.get("WIDGET_COUNTRY", "").strip().upper()
 MIC = os.environ.get("WIDGET_MIC", "").strip()
+
+
+def switch(name, default=True):
+    value = os.environ.get(name, "").strip().lower()
+    return default if not value else value in ("1", "on", "yes", "true")
+
+
+FOG = switch("WIDGET_FOG")
+RIPPLE = switch("WIDGET_RIPPLE")
 WEATHER_EVERY = 600   # seconds between weather updates
 LISTEN_EVERY = 10     # seconds between song checks (start to start)
 CLIP_SECONDS = 8      # length of each mic clip
@@ -55,6 +71,12 @@ LYRICS = os.path.join(RUN_DIR, "lyrics")
 CACHE_DIR = os.path.expanduser("~/.cache/ghostty-widget")
 GEO_CACHE = os.path.join(CACHE_DIR, "location.json")
 LYRICS_CACHE = os.path.join(CACHE_DIR, "lyrics")
+# The shader ships next to this script; the copy Ghostty uses, with the
+# settings applied, and the config snippet that loads it go in DATA_DIR.
+SHADER_SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "glyph_fog.glsl")
+DATA_DIR = os.path.expanduser("~/.local/share/ghostty-widget")
+SHADER = os.path.join(DATA_DIR, "glyph_fog.active.glsl")
+SHADER_CONF = os.path.join(DATA_DIR, "shaders.conf")
 
 WMO = {  # weather code -> (symbol, words)
     0: ("☀", "clear"), 1: ("☀", "mostly clear"), 2: ("☁", "partly cloudy"), 3: ("☁", "overcast"),
@@ -395,6 +417,43 @@ class Lyrics:
         state["s_lyrics_rev"] = str(time.time_ns())  # tells the widget to reload
 
 
+def write_if_changed(path, text):
+    try:
+        with open(path) as f:
+            if f.read() == text:
+                return False
+    except OSError:
+        pass
+    with open(path + ".tmp", "w") as f:
+        f.write(text)
+    os.replace(path + ".tmp", path)
+    return True
+
+
+def apply_shader_settings():
+    """Write the fog shader and the Ghostty config snippet for the current
+    settings, and make running Ghostty reload its config if they changed."""
+    conf = "# Written by the ghostty-widget service; set WIDGET_FOG / WIDGET_RIPPLE\n"
+    conf += "# in ~/.config/ghostty-widget/env instead of editing this.\n"
+    changed = False
+    if FOG:
+        try:
+            with open(SHADER_SRC) as f:
+                shader = f.read()
+        except OSError:
+            shader = None
+        if shader is not None:
+            if not RIPPLE:
+                shader = re.sub(r"(const float CLICK_RIPPLE\s*=\s*)[0-9.]+", r"\g<1>0.0", shader)
+            os.makedirs(DATA_DIR, exist_ok=True)
+            changed |= write_if_changed(SHADER, shader)
+            conf += f"custom-shader = {SHADER}\ncustom-shader-animation = always\n"
+    os.makedirs(DATA_DIR, exist_ok=True)
+    changed |= write_if_changed(SHADER_CONF, conf)
+    if changed:
+        subprocess.run(["pkill", "-USR2", "-x", "ghostty"], check=False)
+
+
 def write_state(state):
     tmp = STATE + ".tmp"
     with open(tmp, "w") as f:
@@ -405,6 +464,7 @@ def write_state(state):
 
 def main():
     os.makedirs(RUN_DIR, exist_ok=True)
+    apply_shader_settings()
     mic = MicStream() if MIC else None  # no mic set: no Shazam
     lyrics = Lyrics()
     state = {"updated": str(int(time.time()))}
