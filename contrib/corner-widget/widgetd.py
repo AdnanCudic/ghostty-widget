@@ -11,6 +11,15 @@ second. Standard library only.
 The microphone stays open the whole time, keeping only the last few seconds
 in memory, so GNOME's microphone indicator stays on instead of flashing for
 every clip.
+
+Settings come from the environment (the service reads them from
+~/.config/ghostty-widget/env):
+
+  WIDGET_CITY     city for the weather, e.g. "Berlin"; unset = no weather
+  WIDGET_COUNTRY  two-letter country code to pick the right city, e.g. "DE"
+  WIDGET_MIC      microphone for recognising music in the room: a PipeWire
+                  source name (pactl list short sources), or "default";
+                  unset = no microphone, only what this computer plays
 """
 
 import json
@@ -26,9 +35,9 @@ import urllib.request
 import wave
 
 # --- CONFIGURATION ---
-CITY = "Tuzla"
-COUNTRY_CODE = "BA"
-MIC = "alsa_input.pci-0000_00_1f.3-platform-sof_sdw.HiFi__Mic__source"  # laptop mic; "" = system default
+CITY = os.environ.get("WIDGET_CITY", "").strip()
+COUNTRY_CODE = os.environ.get("WIDGET_COUNTRY", "").strip().upper()
+MIC = os.environ.get("WIDGET_MIC", "").strip()
 WEATHER_EVERY = 600   # seconds between weather updates
 LISTEN_EVERY = 10     # seconds between song checks (start to start)
 CLIP_SECONDS = 8      # length of each mic clip
@@ -68,13 +77,16 @@ def get_json(url):
 def location():
     try:
         with open(GEO_CACHE) as f:
-            return json.load(f)
+            loc = json.load(f)
+        if (loc.get("city"), loc.get("country")) == (CITY, COUNTRY_CODE):
+            return loc
     except (OSError, ValueError):
         pass
     q = urllib.parse.urlencode({"name": CITY, "count": 10, "format": "json"})
     res = get_json(f"https://geocoding-api.open-meteo.com/v1/search?{q}").get("results", [])
     res = [r for r in res if r.get("country_code") == COUNTRY_CODE] or res
-    loc = {"lat": res[0]["latitude"], "lon": res[0]["longitude"]}
+    loc = {"city": CITY, "country": COUNTRY_CODE,
+           "lat": res[0]["latitude"], "lon": res[0]["longitude"]}
     os.makedirs(CACHE_DIR, exist_ok=True)
     with open(GEO_CACHE, "w") as f:
         json.dump(loc, f)
@@ -108,7 +120,7 @@ class MicStream:
 
     def run(self):
         cmd = ["pw-record", "--rate", str(SAMPLE_RATE), "--channels", "1", "--format", "s16"]
-        if MIC:
+        if MIC != "default":
             cmd += ["--target", MIC]
         cmd.append("-")  # stdout: a small AU header, then little-endian samples
         while True:
@@ -393,14 +405,14 @@ def write_state(state):
 
 def main():
     os.makedirs(RUN_DIR, exist_ok=True)
-    mic = MicStream()
+    mic = MicStream() if MIC else None  # no mic set: no Shazam
     lyrics = Lyrics()
     state = {"updated": str(int(time.time()))}
     next_weather = next_listen = 0.0
     misses = 0
     while True:
         now = time.time()
-        if now >= next_weather:
+        if CITY and now >= next_weather:
             try:
                 state.update(weather())
                 next_weather = now + WEATHER_EVERY
@@ -424,7 +436,7 @@ def main():
             for k in SONG_KEYS:
                 state.pop(k, None)
             next_listen = now
-        elif now >= next_listen:
+        elif mic and now >= next_listen:
             song = listen(mic)
             if song:
                 cover_url = song.pop("cover_url", "")
