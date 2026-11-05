@@ -1,0 +1,49 @@
+# ~/.config/ghostty/config — the setup this fork is built around.
+# Copy it (and tabs.css) to ~/.config/ghostty/. See .github/README.md.
+
+# --- splits ---
+keybind = ctrl+shift+minus=new_split:down
+keybind = ctrl+shift+plus=new_split:right
+keybind = ctrl+shift+equal=new_split:right
+
+# --- tabs ---
+keybind = ctrl+shift+t=new_tab
+
+# --- close focused split (closes tab if it's the last one) ---
+keybind = ctrl+shift+x=close_surface
+
+# --- navigate splits ---
+keybind = ctrl+shift+left=goto_split:left
+keybind = ctrl+shift+right=goto_split:right
+keybind = ctrl+shift+up=goto_split:up
+keybind = ctrl+shift+down=goto_split:down
+
+# --- shaders (applied in order) ---
+# Optional: a cursor trail shader of your choice (not included here):
+# custom-shader = ~/.config/ghostty/shaders/cursor_trail.glsl
+custom-shader-animation = always
+
+# --- tab navigation ---
+keybind = ctrl+shift+left_bracket=previous_tab
+keybind = ctrl+shift+right_bracket=next_tab
+
+theme = Adwaita Dark
+background = #000000
+
+# --- sleek window: no titlebar or buttons, "Pill" tabs only with 2+ tabs ---
+window-decoration = none
+gtk-titlebar-style = native
+window-show-tab-bar = auto
+gtk-wide-tabs = false
+gtk-toolbar-style = flat
+gtk-custom-css = ~/.config/ghostty/tabs.css
+window-padding-x = 10
+window-padding-y = 4
+
+window-theme = ghostty
+window-titlebar-background = #151515
+window-titlebar-foreground = #c0c0c0
+
+# Glyph fog shader, managed by the ghostty-widget service
+# (WIDGET_FOG / WIDGET_RIPPLE in ~/.config/ghostty-widget/env)
+config-file = ?~/.local/share/ghostty-widget/shaders.conf

@@ -1,0 +1,91 @@
+/*
+ * Ghostty tabs: "Pill" design (Clay colours, matches the corner widget).
+ * Loaded through `gtk-custom-css` in ~/.config/ghostty/config.
+ *
+ * No buttons at all: switch tabs with ctrl+shift+[ / ], close with `exit`
+ * or ctrl+shift+x, middle-click a tab to close it.
+ */
+
+/* The bar itself: black, no border or shadow. */
+tabbar .box {
+  background: #000000;
+  border: none;
+  box-shadow: none;
+  padding: 6px 8px 2px 8px;
+}
+
+/* No separators between tabs. */
+tabbar tabbox > separator {
+  opacity: 0;
+  min-width: 0;
+}
+
+/* Every tab: plain text, no background. */
+tabbar tab {
+  background: transparent;
+  box-shadow: none;
+  border-radius: 6px;
+  min-height: 26px;
+  margin: 0 2px;
+  padding: 0 12px;
+  color: #6b6a66;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 12px;
+}
+
+tabbar tab:hover {
+  background: #0d0b0a;
+  color: #9a9893;
+}
+
+/* Active tab: warm dark pill with a clay dot before the title. */
+tabbar tab:selected {
+  background: #1a1512;
+  color: #f0eee6;
+}
+
+tabbar tab:selected label {
+  padding-left: 14px;
+  background-image: radial-gradient(circle at 4px 50%, #d97757 3px, transparent 3.5px);
+  background-repeat: no-repeat;
+}
+
+/* Hide the close button and the indicator icon on every tab. */
+tabbar tab button.tab-close-button,
+tabbar tab button.tab-indicator {
+  opacity: 0;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  -gtk-icon-size: 1px;
+}
+
+/*
+ * Black behind every terminal, so a new tab doesn't flash the default grey
+ * background before its first frame is drawn (custom shaders take a moment
+ * to load for each new tab).
+ */
+window.window,
+window.window toolbarview,
+window.window tabview,
+window.window tabview > stack {
+  background-color: #000000;
+}
+
+/*
+ * SSH tabs (patched Ghostty tags them with .remote): red instead of clay,
+ * so you always know when you're typing into a server.
+ */
+tabbar tab.remote {
+  color: #e24b4a;
+}
+
+tabbar tab.remote:selected {
+  background: #3a1414;
+  color: #f7c1c1;
+}
+
+tabbar tab.remote:selected label {
+  background-image: radial-gradient(circle at 4px 50%, #e24b4a 3px, transparent 3.5px);
+}
