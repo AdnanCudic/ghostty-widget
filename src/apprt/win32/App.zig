@@ -2204,6 +2204,13 @@ fn surfaceWndProc(
             return w32.DefWindowProcW(hwnd, msg, wparam, lparam);
         },
 
+        // Fork addition: the overlays follow the surface's moves and
+        // visibility (sent after the change, unlike WM_SHOWWINDOW).
+        w32.WM_WINDOWPOSCHANGED => {
+            surface.syncOverlays();
+            return w32.DefWindowProcW(hwnd, msg, wparam, lparam);
+        },
+
         w32.WM_SETTINGCHANGE => {
             if (surface.scrollbar) |sb| {
                 if (sb.onSettingsChange()) {

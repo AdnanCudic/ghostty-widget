@@ -1387,6 +1387,13 @@ fn tabCloseRect(self: *const Window, tab: w32.RECT) w32.RECT {
 
 /// Paint the tab bar using double-buffered GDI painting.
 /// Draws tab backgrounds, text labels, close buttons (x), and the new-tab (+) button.
+/// Fork addition: whether any split in tab `i` is in an SSH session.
+fn tabIsRemote(self: *Window, i: usize) bool {
+    var it = self.tab_trees[i].iterator();
+    while (it.next()) |entry| if (entry.view.remote) return true;
+    return false;
+}
+
 fn paintTabBar(self: *Window) void {
     const hwnd = self.hwnd orelse return;
 
@@ -1458,15 +1465,21 @@ fn paintTabBar(self: *Window) void {
         min_tab_w,
     );
 
+    // Fork addition: SSH tabs are red, like the GTK fork's tabs.css.
+    const remote_red = w32.RGB(0xE2, 0x4B, 0x4A);
+    const remote_active_bg = w32.RGB(0x3A, 0x14, 0x14);
+    const remote_active_text = w32.RGB(0xF7, 0xC1, 0xC1);
+
     // --- Draw each tab ---
     for (0..self.tab_count) |i| {
         const is_active = (i == self.active_tab);
         const is_hovered = (@as(isize, @intCast(i)) == self.hover_tab);
+        const is_remote = self.tabIsRemote(i);
         const x = self.tab_rects[i].left;
         const this_tab_w = self.tab_rects[i].right - x;
 
         if (is_active) {
-            _ = w32.SetDCBrushColor(mem_dc, active_bg_color);
+            _ = w32.SetDCBrushColor(mem_dc, if (is_remote) remote_active_bg else active_bg_color);
             _ = w32.FillRect(mem_dc, &self.tab_rects[i], brush);
         } else if (is_hovered) {
             _ = w32.SetDCBrushColor(mem_dc, hover_color);
@@ -1483,10 +1496,21 @@ fn paintTabBar(self: *Window) void {
             _ = w32.FillRect(mem_dc, &divider, brush);
         }
 
+        // Fork addition: a red bar along the top of an SSH tab.
+        if (is_remote) {
+            var bar = self.tab_rects[i];
+            bar.bottom = bar.top + @max(2, @as(i32, @intFromFloat(@round(2.0 * self.scale))));
+            _ = w32.SetDCBrushColor(mem_dc, remote_red);
+            _ = w32.FillRect(mem_dc, &bar, brush);
+        }
+
         // Draw tab title text.
         const title_len = self.tab_title_lens[i];
         if (title_len > 0) {
-            _ = w32.SetTextColor(mem_dc, if (is_active) active_text_color else inactive_text_color);
+            const text_color = if (is_remote)
+                (if (is_active) remote_active_text else remote_red)
+            else if (is_active) active_text_color else inactive_text_color;
+            _ = w32.SetTextColor(mem_dc, text_color);
             var text_rect = w32.RECT{
                 .left = x + title_pad,
                 .top = 0,
@@ -2411,6 +2435,17 @@ pub fn windowWndProc(
                     }
                 }
                 return 1;
+            }
+            return w32.DefWindowProcW(hwnd, msg, wparam, lparam);
+        },
+        w32.WM_WINDOWPOSCHANGED => {
+            // Fork addition: overlays (SSH badge, corner widget) are owned
+            // popups. They follow the window when it moves, and hide when
+            // it is hidden (the quick terminal sliding away uses SW_HIDE,
+            // which does not hide owned popups by itself).
+            for (0..window.tab_count) |i| {
+                var it = window.tab_trees[i].iterator();
+                while (it.next()) |entry| entry.view.syncOverlays();
             }
             return w32.DefWindowProcW(hwnd, msg, wparam, lparam);
         },

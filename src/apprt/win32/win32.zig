@@ -1642,3 +1642,30 @@ pub const ITaskbarList3 = extern struct {
         _ = self.vtable.SetProgressValue(self, hwnd, completed, total);
     }
 };
+
+// -----------------------------------------------------------------------
+// Fork additions: corner widget and SSH badge overlays
+// -----------------------------------------------------------------------
+
+pub const WM_WINDOWPOSCHANGED: u32 = 0x0047;
+pub const WM_NCHITTEST: u32 = 0x0084;
+pub const HTTRANSPARENT: isize = -1;
+pub const HTCLIENT_RESULT: isize = 1;
+
+pub extern "kernel32" fn GetEnvironmentVariableW(
+    lpName: [*:0]const u16,
+    lpBuffer: ?[*]u16,
+    nSize: u32,
+) callconv(.winapi) u32;
+
+pub extern "kernel32" fn GetComputerNameW(
+    lpBuffer: [*]u16,
+    nSize: *u32,
+) callconv(.winapi) i32;
+
+pub const GA_ROOT: u32 = 2;
+
+pub extern "user32" fn GetAncestor(
+    hwnd: HWND,
+    gaFlags: u32,
+) callconv(.winapi) ?HWND;

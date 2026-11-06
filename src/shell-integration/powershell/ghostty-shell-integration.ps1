@@ -6,7 +6,8 @@
 # Features (controlled by $env:GHOSTTY_SHELL_FEATURES):
 #   - Semantic prompt marking (OSC 133)
 #   - Current working directory reporting (OSC 7)
-#   - Window title updates (OSC 2)
+#   - Window title updates (OSC 2): the directory at the prompt, the
+#     command line while a command runs
 #   - Cursor shape changes at prompt
 
 if (-not $env:GHOSTTY_SHELL_FEATURES) { return }
@@ -82,6 +83,21 @@ function prompt {
 # (marks end of input, start of command output).
 if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
     Set-PSReadLineKeyHandler -Key Enter -ScriptBlock {
+        # OSC 2 — while a command runs, the title is the command line (as
+        # the zsh, fish and bash integrations do), so `ssh host` shows up
+        # in the title. The prompt puts the directory back afterwards.
+        # Control characters are removed so the line cannot end the OSC.
+        if ($GhosttyFeatures -contains 'title') {
+            $line = $null
+            $cursor = $null
+            [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
+            $commandTitle = ($line -replace '[\p{Cc}\x7f-\x9f]', ' ').Trim()
+            if ($commandTitle.Length -gt 200) { $commandTitle = $commandTitle.Substring(0, 200) }
+            if ($commandTitle) {
+                [Console]::Write("$Script:__ghostty_escape]2;$commandTitle`a")
+            }
+        }
+
         # OSC 133;C — end of input, start of output.
         [Console]::Write("$Script:__ghostty_escape]133;C`a")
 

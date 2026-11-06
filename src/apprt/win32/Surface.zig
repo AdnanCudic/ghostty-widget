@@ -17,6 +17,8 @@ const App = @import("App.zig");
 const Window = @import("Window.zig");
 const w32 = @import("win32.zig");
 const Scrollbar = @import("Scrollbar.zig").Scrollbar;
+const RemoteBadge = @import("RemoteBadge.zig");
+const remote_title = @import("remote.zig");
 
 const log = std.log.scoped(.win32);
 
@@ -100,6 +102,14 @@ frame_event: ?w32.HANDLE = null,
 /// Themed scrollbar (custom layered-popup overlay).
 /// Created lazily after the surface HWND exists.
 scrollbar: ?*Scrollbar = null,
+
+/// Fork addition: red strip and server name while in an SSH session
+/// (layered-popup overlay, see RemoteBadge.zig).
+remote_badge: ?*RemoteBadge = null,
+
+/// Fork addition: whether the title says this surface is in an SSH session.
+/// Read by the tab strip to colour the tab.
+remote: bool = false,
 
 /// The current mouse cursor. Cached so WM_SETCURSOR can restore it
 /// (DefWindowProc resets the cursor to the class cursor on every
@@ -320,6 +330,14 @@ pub fn initWithOptions(
         self.scrollbar = null;
     };
 
+    // Fork addition: the SSH badge overlay. Optional: the terminal works
+    // without it.
+    self.remote_badge = RemoteBadge.create(alloc, hwnd, app.hinstance) catch |err| blk: {
+        log.warn("unable to create SSH badge overlay err={}", .{err});
+        break :blk null;
+    };
+    if (self.remote_badge) |b| b.resize(@intCast(self.width), self.scale);
+
     // Seed initial theme colors from the app config.
     if (self.scrollbar) |sb| {
         sb.setTheme(
@@ -419,6 +437,7 @@ fn deinitGui(self: *Surface) void {
         sb.destroy();
         self.scrollbar = null;
     }
+    self.deinitOverlays();
 
     // Destroy popup windows and their GDI resources.
     if (self.search_hwnd) |popup| {
@@ -1194,7 +1213,31 @@ pub fn setTitle(self: *Surface, title: [:0]const u8) void {
     @memcpy(self.title[0..len], title[0..len]);
     self.title[len] = 0;
     self.title_len = len;
+
+    // Fork addition: SSH awareness. Must be set before the tab strip
+    // repaints (onTabTitleChanged) so the tab picks up the colour.
+    const host = remote_title.remoteHost(title);
+    self.remote = host != null;
+    if (self.remote_badge) |b| b.setHost(host);
+    if (self.core_surface_ready) self.core_surface.setRemote(self.remote);
+
     self.parent_window.onTabTitleChanged(self, title);
+}
+
+/// Fork addition: destroy the overlay popups (SSH badge, corner widget).
+fn deinitOverlays(self: *Surface) void {
+    const alloc = self.app.core_app.alloc;
+    if (self.remote_badge) |b| {
+        b.destroy(alloc);
+        self.remote_badge = null;
+    }
+}
+
+/// Fork addition: show/hide and move the overlay popups to match the
+/// surface. Called on WM_WINDOWPOSCHANGED of the surface and of its
+/// top-level window.
+pub fn syncOverlays(self: *Surface) void {
+    if (self.remote_badge) |b| b.overlay.sync();
 }
 
 /// Toggle fullscreen mode. Delegates to the parent Window.
@@ -2191,6 +2234,9 @@ pub fn handleResize(self: *Surface, width: u32, height: u32) void {
     }
     self.width = grid_width;
 
+    // Fork addition: overlays span the full client width.
+    if (self.remote_badge) |b| b.resize(@intCast(width), self.scale);
+
     // Reposition popups with corrected width.
     if (self.search_active) self.positionSearchBar();
     if (self.palette_active) self.positionCommandPalette();
@@ -2300,6 +2346,12 @@ pub fn handleDpiChange(self: *Surface) void {
 
     // Notify the scrollbar of the new DPI.
     if (self.scrollbar) |sb| sb.onDpiChanged(@intFromFloat(self.scale * 96.0));
+
+    // Fork addition: redraw overlays at the new scale.
+    if (self.remote_badge) |b| {
+        var rect: w32.RECT = undefined;
+        if (self.hwnd) |h| if (w32.GetClientRect(h, &rect) != 0) b.resize(rect.right - rect.left, self.scale);
+    }
 }
 
 /// Handle WM_KEYDOWN / WM_SYSKEYDOWN / WM_KEYUP / WM_SYSKEYUP.
