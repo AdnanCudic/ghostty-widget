@@ -361,7 +361,7 @@ test "custom shader selection uniform layout matches compiled GLSL" {
     const c = spvcross.c;
     const src = try testGlslZ(testing.allocator,
         \\void mainImage(out vec4 color, in vec2 pixel) {
-        \\    color = vec4(iSelectionForegroundColor + iSelectionBackgroundColor, 1.0);
+        \\    color = vec4(iSelectionForegroundColor + iSelectionBackgroundColor + iRemote.xyz, 1.0);
         \\}
     );
     defer testing.allocator.free(src);
@@ -405,6 +405,9 @@ test "custom shader selection uniform layout matches compiled GLSL" {
     inline for (.{
         .{ "selection_foreground_color", "iSelectionForegroundColor" },
         .{ "selection_background_color", "iSelectionBackgroundColor" },
+        .{ "remote", "iRemote" },
+        .{ "mouse", "iMouse" },
+        .{ "date", "iDate" },
     }) |field| {
         var found = false;
         for (0..c.spvc_type_get_num_member_types(typ)) |i| {
@@ -419,6 +422,35 @@ test "custom shader selection uniform layout matches compiled GLSL" {
         }
         try testing.expect(found);
     }
+}
+
+test "glyph fog shader compiles" {
+    // Fork addition: contrib/corner-widget/glyph_fog.glsl must keep
+    // compiling. It lives outside the src module, so read it from the
+    // repository checkout and skip when the test runs from elsewhere.
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = std.testing.io;
+
+    const fog = std.Io.Dir.cwd().readFileAlloc(
+        io,
+        "contrib/corner-widget/glyph_fog.glsl",
+        alloc,
+        .limited(1024 * 1024),
+    ) catch return error.SkipZigTest;
+    defer alloc.free(fog);
+
+    const src = try testGlslZ(alloc, fog);
+    defer alloc.free(src);
+
+    var buf: std.Io.Writer.Allocating = .init(alloc);
+    defer buf.deinit();
+    var errlog: SpirvLog = .{ .alloc = alloc };
+    defer errlog.deinit();
+    spirvFromGlsl(&buf.writer, &errlog, src) catch |err| {
+        std.log.err("glyph_fog.glsl: {s}", .{errlog.info});
+        return err;
+    };
 }
 
 test "spirv" {
