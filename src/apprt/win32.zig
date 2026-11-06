@@ -10,6 +10,8 @@ test {
     _ = Surface;
     _ = @import("win32/Window.zig");
     _ = @import("win32/TabOverview.zig");
+    _ = @import("win32/remote.zig");
+    _ = @import("win32/gdip.zig");
 }
 
 const internal_os = @import("../os/main.zig");
