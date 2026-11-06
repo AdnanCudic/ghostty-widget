@@ -107,6 +107,17 @@ quick_terminal: ?*QuickTerminal = null,
 /// single quick-terminal hotkey to every keybind flagged `global:`.
 global_hotkeys: std.ArrayList(GlobalHotkey) = .empty,
 
+/// Registered window message that makes Ghostty reload its config from disk,
+/// the Windows stand-in for SIGUSR2. Another program broadcasts it with
+/// PostMessageW(HWND_BROADCAST, RegisterWindowMessageW("GhosttyReloadConfig"),
+/// 0, 0); the corner-widget service uses this after rewriting shaders.conf.
+/// Zero if registration failed.
+reload_msg: u32 = 0,
+
+/// GetTickCount64 of the last external reload, so one broadcast (which
+/// reaches every top-level Ghostty window) reloads only once.
+reload_msg_tick: u64 = 0,
+
 /// Cached ITaskbarList3 for taskbar-button progress (OSC 9;4), created lazily
 /// on first progress_report. Null until then / if COM creation fails.
 taskbar: ?*w32.ITaskbarList3 = null,
@@ -256,6 +267,11 @@ pub fn init(
     // Register global hotkey for quick terminal (if configured).
     self.registerGlobalHotkey();
 
+    // External "reload your config" requests (see reload_msg).
+    self.reload_msg = w32.RegisterWindowMessageW(
+        std.unicode.utf8ToUtf16LeStringLiteral("GhosttyReloadConfig"),
+    );
+
     // Check for updates in the background (non-blocking).
     self.startUpdateCheck(false);
 }
@@ -287,6 +303,19 @@ pub fn run(self: *App) !void {
             // GetMessageW already removed this message from the queue.
             self.discardOpenUrlRequest(msg);
             break;
+        }
+
+        // An external reload request, broadcast to every top-level window:
+        // act on the first copy only.
+        if (self.reload_msg != 0 and msg.message == self.reload_msg) {
+            const now = w32.GetTickCount64();
+            if (now -% self.reload_msg_tick > 500) {
+                self.reload_msg_tick = now;
+                self.core_app.performAllAction(self, .reload_config) catch |err| {
+                    log.warn("external config reload failed err={}", .{err});
+                };
+            }
+            continue;
         }
 
         // Dispatch a global hotkey to its bound action.

@@ -1312,6 +1312,12 @@ pub extern "user32" fn UnregisterHotKey(
     id: i32,
 ) callconv(.winapi) i32;
 
+pub extern "user32" fn RegisterWindowMessageW(
+    lpString: [*:0]const u16,
+) callconv(.winapi) u32;
+
+pub extern "kernel32" fn GetTickCount64() callconv(.winapi) u64;
+
 // -----------------------------------------------------------------------
 // Monitor API (additional)
 // -----------------------------------------------------------------------
