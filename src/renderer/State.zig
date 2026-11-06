@@ -39,6 +39,10 @@ mouse: Mouse = .{},
 /// decide whether to hand the mutex off before relocking it.
 demand: std.atomic.Value(u32) = .init(0),
 
+/// Fork addition: whether the surface is in an SSH session, for the
+/// iRemote custom shader uniform.
+remote: bool = false,
+
 /// Handoff generation counter. Incremented (with a futex wake) by
 /// `unlockDemand` after a demanding waiter releases the mutex, so that
 /// `yieldToDemand` knows the waiter had its turn.
@@ -114,6 +118,12 @@ pub const Mouse = struct {
     /// This could really just be mods in general and we probably will
     /// move it out of mouse state at some point.
     mods: inputpkg.Mods = .{},
+
+    /// Fork addition: the last left click in surface pixels (top-left
+    /// origin) and a counter that bumps on every click. Custom shaders
+    /// receive it as iMouse.
+    click: [2]f32 = .{ 0, 0 },
+    click_seq: u32 = 0,
 };
 
 /// The pre-edit state. See Surface.preeditCallback for more information.

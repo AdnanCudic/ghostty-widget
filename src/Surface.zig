@@ -2795,6 +2795,18 @@ pub fn setFontSize(self: *Surface, size: font.face.DesiredSize) !void {
     self.queueRender() catch unreachable;
 }
 
+/// Fork addition: whether this surface is in an SSH session (decided by
+/// the apprt from the title). Custom shaders receive it as iRemote.
+pub fn setRemote(self: *Surface, value: bool) void {
+    {
+        self.renderer_state.mutex.lockUncancelable(global.io());
+        defer self.renderer_state.mutex.unlock(global.io());
+        if (self.renderer_state.remote == value) return;
+        self.renderer_state.remote = value;
+    }
+    self.queueRender() catch {};
+}
+
 /// This queues a render operation with the renderer thread. The render
 /// isn't guaranteed to happen immediately but it will happen as soon as
 /// practical.
@@ -4171,6 +4183,18 @@ pub fn mouseButtonCallback(
 
     // Always record our latest mouse state
     self.mouse.click_state[@intCast(@backingInt(button))] = action;
+
+    // Fork addition: pass left clicks to custom shaders (iMouse).
+    if (button == .left and action == .press) click: {
+        const pos = self.rt_surface.getCursorPos() catch break :click;
+        self.renderer_state.mutex.lockUncancelable(global.io());
+        defer self.renderer_state.mutex.unlock(global.io());
+        self.renderer_state.mouse.click = .{ pos.x, pos.y };
+        self.renderer_state.mouse.click_seq +%= 1;
+    }
+    // Wake the renderer so the click reaches the shader on the next frame
+    // instead of whenever the terminal next changes (e.g. a cursor blink).
+    if (button == .left and action == .press) self.queueRender() catch {};
 
     // Always show the mouse again if it is hidden
     if (self.mouse.hidden) self.showMouse();

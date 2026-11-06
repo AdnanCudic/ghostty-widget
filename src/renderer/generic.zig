@@ -146,6 +146,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// shaders to update their state.
         custom_shader_focused_changed: bool = false,
 
+        /// Fork addition: the latest left click for custom shaders, copied
+        /// out of the renderer state, and which click we last passed on.
+        custom_shader_click: [2]f32 = .{ 0, 0 },
+        custom_shader_click_seq: u32 = 0,
+        custom_shader_click_seen: u32 = 0,
+
         /// The most recent scrollbar state. We use this as a cache to
         /// determine if we need to notify the apprt that there was a
         /// scrollbar change.
@@ -792,8 +798,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .frame = 0,
                     .channel_time = @splat(@splat(0)), // not currently updated
                     .channel_resolution = @splat(@splat(0)),
-                    .mouse = @splat(0), // not currently updated
-                    .date = @splat(0), // not currently updated
+                    .mouse = @splat(0), // fork: set on left click
+                    .date = @splat(0), // fork: set every frame
                     .sample_rate = 0, // N/A, we don't have any audio
                     .current_cursor = @splat(0),
                     .previous_cursor = @splat(0),
@@ -812,6 +818,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .cursor_text = @splat(0),
                     .selection_background_color = @splat(0),
                     .selection_foreground_color = @splat(0),
+                    .remote = @splat(0),
                 },
                 .bg_image_buffer = undefined,
 
@@ -1416,6 +1423,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const Critical = struct {
                 links: terminal.RenderState.CellSet,
                 mouse: renderer.State.Mouse,
+                remote: bool,
                 preedit: ?renderer.State.Preedit,
                 scrollbar: terminal.Scrollbar,
                 overlay_features: []const Overlay.Feature,
@@ -1571,6 +1579,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 break :critical .{
                     .links = links,
                     .mouse = state.mouse,
+                    .remote = state.remote,
                     .preedit = preedit,
                     .scrollbar = scrollbar,
                     .overlay_features = overlay_features,
@@ -1581,6 +1590,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // within it. This must be done before anything reads the
             // render state (e.g. rebuildCells).
             self.terminal_state.endUpdate();
+            // Fork addition: remember the latest click for custom shaders.
+            self.custom_shader_click = critical.mouse.click;
+            self.custom_shader_click_seq = critical.mouse.click_seq;
+            self.custom_shader_uniforms.remote = .{ @floatFromInt(@intFromBool(critical.remote)), 0, 0, 0 };
 
             // Outside the critical area we can update our links to contain
             // our regex results.
@@ -2469,6 +2482,23 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             uniforms.time_delta = delta_ns / std.time.ns_per_s;
 
             uniforms.frame += 1;
+
+            // Fork addition: iDate = (year, month 0-11, day 1-31, local
+            // seconds since midnight), as on Shadertoy.
+            uniforms.date = localDate();
+
+            // Fork addition: iMouse = (x, y, time of click on the iTime
+            // clock, 1) for the latest left click, y measured from the
+            // bottom like gl_FragCoord. All zero until the first click.
+            if (self.custom_shader_click_seq != self.custom_shader_click_seen) {
+                self.custom_shader_click_seen = self.custom_shader_click_seq;
+                uniforms.mouse = .{
+                    self.custom_shader_click[0],
+                    @as(f32, @floatFromInt(self.size.screen.height)) - self.custom_shader_click[1],
+                    uniforms.time,
+                    1,
+                };
+            }
 
             const screen = self.size.screen;
             const padding = self.size.padding;
@@ -3705,5 +3735,64 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             try texture.replaceRegion(0, 0, atlas.size, atlas.size, atlas.data);
         }
+    };
+}
+
+/// Fork addition: local date for the iDate shader uniform:
+/// (year, month 0-11, day 1-31, seconds since local midnight).
+fn localDate() [4]f32 {
+    if (comptime builtin.os.tag == .windows) {
+        const SYSTEMTIME = extern struct {
+            wYear: u16,
+            wMonth: u16,
+            wDayOfWeek: u16,
+            wDay: u16,
+            wHour: u16,
+            wMinute: u16,
+            wSecond: u16,
+            wMilliseconds: u16,
+        };
+        const k32 = struct {
+            extern "kernel32" fn GetLocalTime(lpSystemTime: *SYSTEMTIME) callconv(.winapi) void;
+        };
+        var st: SYSTEMTIME = undefined;
+        k32.GetLocalTime(&st);
+        const secs: u32 = @as(u32, st.wHour) * 3600 + @as(u32, st.wMinute) * 60 + st.wSecond;
+        return .{
+            @floatFromInt(st.wYear),
+            @floatFromInt(st.wMonth - 1),
+            @floatFromInt(st.wDay),
+            @as(f32, @floatFromInt(secs)) + @as(f32, @floatFromInt(st.wMilliseconds)) / 1000.0,
+        };
+    }
+
+    const Tm = extern struct {
+        sec: c_int,
+        min: c_int,
+        hour: c_int,
+        mday: c_int,
+        mon: c_int,
+        year: c_int,
+        wday: c_int,
+        yday: c_int,
+        isdst: c_int,
+        gmtoff: c_long,
+        zone: ?[*:0]const u8,
+    };
+    const c = struct {
+        extern "c" fn localtime_r(timep: *const i64, result: *Tm) ?*Tm;
+    };
+    const ts = std.Io.Timestamp.now(global.io(), .real);
+    const ns = ts.toNanoseconds();
+    const now: i64 = @intCast(@divFloor(ns, std.time.ns_per_s));
+    const nsec: i64 = @intCast(@mod(ns, std.time.ns_per_s));
+    var tm: Tm = undefined;
+    _ = c.localtime_r(&now, &tm) orelse return @splat(0);
+    const frac: f32 = @as(f32, @floatFromInt(nsec)) / std.time.ns_per_s;
+    return .{
+        @floatFromInt(tm.year + 1900),
+        @floatFromInt(tm.mon),
+        @floatFromInt(tm.mday),
+        @as(f32, @floatFromInt(tm.hour * 3600 + tm.min * 60 + tm.sec)) + frac,
     };
 }

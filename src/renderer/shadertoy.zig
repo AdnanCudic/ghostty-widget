@@ -39,6 +39,8 @@ pub const Uniforms = extern struct {
     cursor_text: [4]f32 align(16),
     selection_foreground_color: [4]f32 align(16),
     selection_background_color: [4]f32 align(16),
+    /// Fork addition: x = 1 while the surface is in an SSH session.
+    remote: [4]f32 align(16),
 };
 
 /// The target to load shaders for.
