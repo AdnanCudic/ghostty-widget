@@ -18,6 +18,7 @@ const Window = @import("Window.zig");
 const w32 = @import("win32.zig");
 const Scrollbar = @import("Scrollbar.zig").Scrollbar;
 const RemoteBadge = @import("RemoteBadge.zig");
+const CornerWidget = @import("CornerWidget.zig");
 const remote_title = @import("remote.zig");
 
 const log = std.log.scoped(.win32);
@@ -106,6 +107,10 @@ scrollbar: ?*Scrollbar = null,
 /// Fork addition: red strip and server name while in an SSH session
 /// (layered-popup overlay, see RemoteBadge.zig).
 remote_badge: ?*RemoteBadge = null,
+
+/// Fork addition: date, clock, weather and music in the top-right corner
+/// (layered-popup overlay, see CornerWidget.zig).
+corner_widget: ?*CornerWidget = null,
 
 /// Fork addition: whether the title says this surface is in an SSH session.
 /// Read by the tab strip to colour the tab.
@@ -337,6 +342,11 @@ pub fn initWithOptions(
         break :blk null;
     };
     if (self.remote_badge) |b| b.resize(@intCast(self.width), self.scale);
+    self.corner_widget = CornerWidget.create(alloc, hwnd, app.hinstance) catch |err| blk: {
+        log.warn("unable to create corner widget overlay err={}", .{err});
+        break :blk null;
+    };
+    if (self.corner_widget) |cw| cw.resize(@intCast(self.width), @intCast(self.height), self.scale);
 
     // Seed initial theme colors from the app config.
     if (self.scrollbar) |sb| {
@@ -376,6 +386,10 @@ pub fn initWithOptions(
     // (triggered by ShowWindow, wglCreateContext, etc.) must be ignored.
     self.core_surface_ready = true;
     self.core_surface_initialized = true;
+
+    // Fork addition: a title set during init (e.g. the `title` config)
+    // arrived before the core was ready; pass its SSH state on now.
+    if (self.remote) self.core_surface.setRemote(true);
 }
 
 pub fn deinit(self: *Surface) void {
@@ -1231,6 +1245,10 @@ fn deinitOverlays(self: *Surface) void {
         b.destroy(alloc);
         self.remote_badge = null;
     }
+    if (self.corner_widget) |cw| {
+        cw.destroy();
+        self.corner_widget = null;
+    }
 }
 
 /// Fork addition: show/hide and move the overlay popups to match the
@@ -1238,6 +1256,7 @@ fn deinitOverlays(self: *Surface) void {
 /// top-level window.
 pub fn syncOverlays(self: *Surface) void {
     if (self.remote_badge) |b| b.overlay.sync();
+    if (self.corner_widget) |cw| cw.sync();
 }
 
 /// Toggle fullscreen mode. Delegates to the parent Window.
@@ -2236,6 +2255,7 @@ pub fn handleResize(self: *Surface, width: u32, height: u32) void {
 
     // Fork addition: overlays span the full client width.
     if (self.remote_badge) |b| b.resize(@intCast(width), self.scale);
+    if (self.corner_widget) |cw| cw.resize(@intCast(width), @intCast(height), self.scale);
 
     // Reposition popups with corrected width.
     if (self.search_active) self.positionSearchBar();
@@ -2348,10 +2368,11 @@ pub fn handleDpiChange(self: *Surface) void {
     if (self.scrollbar) |sb| sb.onDpiChanged(@intFromFloat(self.scale * 96.0));
 
     // Fork addition: redraw overlays at the new scale.
-    if (self.remote_badge) |b| {
-        var rect: w32.RECT = undefined;
-        if (self.hwnd) |h| if (w32.GetClientRect(h, &rect) != 0) b.resize(rect.right - rect.left, self.scale);
-    }
+    var rect: w32.RECT = undefined;
+    if (self.hwnd) |h| if (w32.GetClientRect(h, &rect) != 0) {
+        if (self.remote_badge) |b| b.resize(rect.right - rect.left, self.scale);
+        if (self.corner_widget) |cw| cw.resize(rect.right - rect.left, rect.bottom - rect.top, self.scale);
+    };
 }
 
 /// Handle WM_KEYDOWN / WM_SYSKEYDOWN / WM_KEYUP / WM_SYSKEYUP.
@@ -2828,6 +2849,8 @@ fn hdropPathsToUtf8(alloc: Allocator, hdrop: w32.HDROP) Allocator.Error!?[]u8 {
 /// `axis` selects which scroll axis to deliver the delta on.
 pub fn handleMouseWheel(self: *Surface, wparam: usize, axis: enum { vertical, horizontal }) void {
     if (!self.core_surface_ready) return;
+    // Fork addition: the wheel over the open lyrics sheet scrolls it.
+    if (axis == .vertical) if (self.corner_widget) |cw| if (cw.wheelAtCursor(wparam)) return;
     // The high word of wparam contains the wheel delta (signed).
     const raw_delta: i16 = @bitCast(@as(u16, @intCast((wparam >> 16) & 0xFFFF)));
     const delta: f64 = @as(f64, @floatFromInt(raw_delta)) / @as(f64, @floatFromInt(w32.WHEEL_DELTA));

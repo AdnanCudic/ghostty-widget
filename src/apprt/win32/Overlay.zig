@@ -34,6 +34,8 @@ pub const Handler = struct {
     mouse: ?*const fn (ctx: *anyopaque, msg: u32, x: i32, y: i32, wparam: usize) void = null,
     /// WM_TIMER for timers set with setTimer.
     timer: ?*const fn (ctx: *anyopaque, id: usize) void = null,
+    /// Whether to show the hand cursor at (x, y); the arrow otherwise.
+    handCursor: ?*const fn (ctx: *anyopaque, x: i32, y: i32) bool = null,
 };
 
 hwnd: w32.HWND,
@@ -192,7 +194,7 @@ fn registerClassOnce(hinstance: w32.HINSTANCE) !void {
         .cbWndExtra = 0,
         .hInstance = hinstance,
         .hIcon = null,
-        .hCursor = w32.LoadCursorW(null, w32.IDC_HAND),
+        .hCursor = w32.LoadCursorW(null, w32.IDC_ARROW),
         .hbrBackground = null,
         .lpszMenuName = null,
         .lpszClassName = CLASS_NAME,
@@ -222,6 +224,20 @@ fn wndProc(hwnd: w32.HWND, msg: u32, wparam: usize, lparam: isize) callconv(.win
             var pt: w32.POINT = .{ .x = lowWord(lparam), .y = highWord(lparam) };
             _ = w32.ScreenToClient(hwnd, &pt);
             return if (self.takesMouse(pt.x, pt.y)) w32.HTCLIENT_RESULT else w32.HTTRANSPARENT;
+        },
+
+        w32.WM_SETCURSOR => {
+            if (self.handler.handCursor) |f| {
+                var pt: w32.POINT = undefined;
+                if (w32.GetCursorPos_(&pt) != 0) {
+                    _ = w32.ScreenToClient(hwnd, &pt);
+                    if (f(self.handler.ctx, pt.x, pt.y)) {
+                        _ = w32.SetCursor(w32.LoadCursorW(null, w32.IDC_HAND));
+                        return 1;
+                    }
+                }
+            }
+            return w32.DefWindowProcW(hwnd, msg, wparam, lparam);
         },
 
         w32.WM_TIMER => {

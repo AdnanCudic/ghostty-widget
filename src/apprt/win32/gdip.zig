@@ -86,6 +86,8 @@ extern "gdiplus" fn GdipAddPathArc(path: *GpPath, x: f32, y: f32, w: f32, h: f32
 extern "gdiplus" fn GdipAddPathLine(path: *GpPath, x1: f32, y1: f32, x2: f32, y2: f32) callconv(.winapi) Status;
 extern "gdiplus" fn GdipClosePathFigure(path: *GpPath) callconv(.winapi) Status;
 extern "gdiplus" fn GdipCreateFontFamilyFromName(name: [*:0]const u16, collection: ?*GpFontCollection, family: *?*GpFontFamily) callconv(.winapi) Status;
+extern "gdiplus" fn GdipGetGenericFontFamilySansSerif(family: *?*GpFontFamily) callconv(.winapi) Status;
+extern "gdiplus" fn GdipCloneFontFamily(family: *GpFontFamily, clone: *?*GpFontFamily) callconv(.winapi) Status;
 extern "gdiplus" fn GdipDeleteFontFamily(family: *GpFontFamily) callconv(.winapi) Status;
 extern "gdiplus" fn GdipCreateFont(family: *GpFontFamily, size: f32, style: c_int, unit: c_int, font: *?*GpFont) callconv(.winapi) Status;
 extern "gdiplus" fn GdipDeleteFont(font: *GpFont) callconv(.winapi) Status;
@@ -135,20 +137,28 @@ pub const Font = struct {
     font: *GpFont,
     px: f32,
 
-    /// The first family in `names` that is installed, at `px` pixels.
+    /// The first family in `names` that is installed, at `px` pixels;
+    /// else the system's generic sans-serif.
     pub fn init(names: []const [:0]const u16, px: f32, style: FontStyle) ?Font {
         for (names) |name| {
             var family: ?*GpFontFamily = null;
             if (GdipCreateFontFamilyFromName(name.ptr, null, &family) != Ok) continue;
-            const fam = family orelse continue;
-            var font: ?*GpFont = null;
-            if (GdipCreateFont(fam, px, @backingInt(style), UnitPixel, &font) != Ok) {
-                _ = GdipDeleteFontFamily(fam);
-                continue;
-            }
-            return .{ .family = fam, .font = font.?, .px = px };
+            if (fromFamily(family orelse continue, px, style)) |f| return f;
         }
-        return null;
+        var generic: ?*GpFontFamily = null;
+        if (GdipGetGenericFontFamilySansSerif(&generic) != Ok) return null;
+        var family: ?*GpFontFamily = null;
+        if (GdipCloneFontFamily(generic orelse return null, &family) != Ok) return null;
+        return fromFamily(family orelse return null, px, style);
+    }
+
+    fn fromFamily(family: *GpFontFamily, px: f32, style: FontStyle) ?Font {
+        var font: ?*GpFont = null;
+        if (GdipCreateFont(family, px, @backingInt(style), UnitPixel, &font) != Ok or font == null) {
+            _ = GdipDeleteFontFamily(family);
+            return null;
+        }
+        return .{ .family = family, .font = font.?, .px = px };
     }
 
     pub fn deinit(self: Font) void {
@@ -196,6 +206,8 @@ pub const Canvas = struct {
     bitmap: *GpBitmap,
     g: *GpGraphics,
     format: *GpStringFormat,
+    /// Like `format` but wrapping at word boundaries.
+    wrap_format: *GpStringFormat,
 
     pub fn init(pixels: [*]u32, w: i32, h: i32) ?Canvas {
         var bitmap: ?*GpBitmap = null;
@@ -208,6 +220,7 @@ pub const Canvas = struct {
         }
         var generic: ?*GpStringFormat = null;
         var format: ?*GpStringFormat = null;
+        var wrap_format: ?*GpStringFormat = null;
         if (GdipStringFormatGetGenericTypographic(&generic) != Ok or
             GdipCloneStringFormat(generic.?, &format) != Ok)
         {
@@ -215,19 +228,27 @@ pub const Canvas = struct {
             _ = GdipDisposeImage(@ptrCast(bmp));
             return null;
         }
-        _ = GdipSetStringFormatFlags(format.?, StringFormatFlagsNoWrap | StringFormatFlagsNoClip);
+        if (GdipCloneStringFormat(generic.?, &wrap_format) != Ok) {
+            _ = GdipDeleteStringFormat(format.?);
+            _ = GdipDeleteGraphics(g.?);
+            _ = GdipDisposeImage(@ptrCast(bmp));
+            return null;
+        }
+        _ = GdipSetStringFormatFlags(format.?, StringFormatFlagsNoWrap);
         _ = GdipSetStringFormatTrimming(format.?, StringTrimmingEllipsisCharacter);
+        _ = GdipSetStringFormatFlags(wrap_format.?, StringFormatFlagsNoClip);
         _ = GdipSetSmoothingMode(g.?, SmoothingModeAntiAlias);
         _ = GdipSetTextRenderingHint(g.?, TextRenderingHintAntiAliasGridFit);
         _ = GdipSetInterpolationMode(g.?, InterpolationModeHighQualityBicubic);
         _ = GdipSetPixelOffsetMode(g.?, PixelOffsetModeHalf);
         _ = GdipGraphicsClear(g.?, 0);
-        return .{ .bitmap = bmp, .g = g.?, .format = format.? };
+        return .{ .bitmap = bmp, .g = g.?, .format = format.?, .wrap_format = wrap_format.? };
     }
 
     /// Flushes drawing into the caller's pixels.
     pub fn deinit(self: Canvas) void {
         _ = GdipDeleteStringFormat(self.format);
+        _ = GdipDeleteStringFormat(self.wrap_format);
         _ = GdipDeleteGraphics(self.g);
         _ = GdipDisposeImage(@ptrCast(self.bitmap));
     }
@@ -318,14 +339,57 @@ pub const Canvas = struct {
 
     /// Draws `text` on one line inside (x, y, w, h), aligned horizontally
     /// as asked and vertically centred; ellipsized when too wide.
-    pub fn drawText(self: Canvas, font: Font, color: u32, str: []const u16, x: f32, y: f32, w: f32, h: f32, al: Align) void {
-        if (str.len == 0) return;
+    pub fn drawText(self: Canvas, font: Font, color: u32, str_in: []const u16, x: f32, y: f32, w: f32, h: f32, al: Align) void {
+        if (str_in.len == 0) return;
+        var buf: [512]u16 = undefined;
+        const str = self.fit(font, str_in, w, &buf);
         const brush = solid(color) orelse return;
         defer _ = GdipDeleteBrush(@ptrCast(brush));
         _ = GdipSetStringFormatAlign(self.format, @backingInt(al));
         _ = GdipSetStringFormatLineAlign(self.format, @backingInt(Align.center));
         const rect: RectF = .{ .x = x, .y = y, .w = w, .h = h };
         _ = GdipDrawString(self.g, str.ptr, @intCast(str.len), font.font, &rect, self.format, @ptrCast(brush));
+    }
+
+    /// `str`, or as much of it as fits in `w` followed by "…".
+    fn fit(self: Canvas, font: Font, str: []const u16, w: f32, buf: []u16) []const u16 {
+        if (self.measure(font, str)[0] <= w) return str;
+        var lo: usize = 0;
+        var hi: usize = @min(str.len, buf.len - 1);
+        while (lo < hi) {
+            const mid = (lo + hi + 1) / 2;
+            @memcpy(buf[0..mid], str[0..mid]);
+            buf[mid] = 0x2026;
+            if (self.measure(font, buf[0 .. mid + 1])[0] <= w) lo = mid else hi = mid - 1;
+        }
+        var n = lo;
+        // Don't split a surrogate pair, and drop trailing spaces.
+        if (n > 0 and str[n - 1] >= 0xD800 and str[n - 1] <= 0xDBFF) n -= 1;
+        while (n > 0 and str[n - 1] == ' ') n -= 1;
+        @memcpy(buf[0..n], str[0..n]);
+        buf[n] = 0x2026;
+        return buf[0 .. n + 1];
+    }
+
+    /// Height of `str` wrapped to `width`.
+    pub fn measureWrapped(self: Canvas, font: Font, str: []const u16, width: f32) f32 {
+        if (str.len == 0) return font.px * 1.2;
+        const layout: RectF = .{ .x = 0, .y = 0, .w = width, .h = 100000 };
+        var bounds: RectF = .{ .x = 0, .y = 0, .w = 0, .h = 0 };
+        _ = GdipSetStringFormatAlign(self.wrap_format, @backingInt(Align.far));
+        _ = GdipMeasureString(self.g, str.ptr, @intCast(str.len), font.font, &layout, self.wrap_format, &bounds, null, null);
+        return bounds.h;
+    }
+
+    /// Draws `str` wrapped to (x, w), starting at y.
+    pub fn drawWrapped(self: Canvas, font: Font, color: u32, str: []const u16, x: f32, y: f32, w: f32, h: f32, al: Align) void {
+        if (str.len == 0) return;
+        const brush = solid(color) orelse return;
+        defer _ = GdipDeleteBrush(@ptrCast(brush));
+        _ = GdipSetStringFormatAlign(self.wrap_format, @backingInt(al));
+        _ = GdipSetStringFormatLineAlign(self.wrap_format, @backingInt(Align.near));
+        const rect: RectF = .{ .x = x, .y = y, .w = w, .h = h };
+        _ = GdipDrawString(self.g, str.ptr, @intCast(str.len), font.font, &rect, self.wrap_format, @ptrCast(brush));
     }
 
     fn solid(color: u32) ?*GpSolidFill {

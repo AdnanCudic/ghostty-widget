@@ -1652,12 +1652,6 @@ pub const WM_NCHITTEST: u32 = 0x0084;
 pub const HTTRANSPARENT: isize = -1;
 pub const HTCLIENT_RESULT: isize = 1;
 
-pub extern "kernel32" fn GetEnvironmentVariableW(
-    lpName: [*:0]const u16,
-    lpBuffer: ?[*]u16,
-    nSize: u32,
-) callconv(.winapi) u32;
-
 pub extern "kernel32" fn GetComputerNameW(
     lpBuffer: [*]u16,
     nSize: *u32,
@@ -1669,3 +1663,29 @@ pub extern "user32" fn GetAncestor(
     hwnd: HWND,
     gaFlags: u32,
 ) callconv(.winapi) ?HWND;
+
+pub const SYSTEMTIME = extern struct {
+    wYear: u16,
+    wMonth: u16,
+    wDayOfWeek: u16,
+    wDay: u16,
+    wHour: u16,
+    wMinute: u16,
+    wSecond: u16,
+    wMilliseconds: u16,
+};
+
+pub extern "kernel32" fn GetLocalTime(lpSystemTime: *SYSTEMTIME) callconv(.winapi) void;
+
+pub const LOCALE_USER_DEFAULT: u32 = 0x0400;
+
+pub extern "kernel32" fn GetDateFormatW(
+    Locale: u32,
+    dwFlags: u32,
+    lpDate: ?*const SYSTEMTIME,
+    lpFormat: ?[*:0]const u16,
+    lpDateStr: ?[*]u16,
+    cchDate: i32,
+) callconv(.winapi) i32;
+
+pub extern "user32" fn CharUpperBuffW(lpsz: [*]u16, cchLength: u32) callconv(.winapi) u32;
