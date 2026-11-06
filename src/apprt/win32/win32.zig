@@ -1689,3 +1689,15 @@ pub extern "kernel32" fn GetDateFormatW(
 ) callconv(.winapi) i32;
 
 pub extern "user32" fn CharUpperBuffW(lpsz: [*]u16, cchLength: u32) callconv(.winapi) u32;
+
+pub const HKL = *opaque {};
+pub const MAPVK_VSC_TO_VK: u32 = 1;
+pub const WM_INPUTLANGCHANGE: u32 = 0x0051;
+
+pub extern "user32" fn GetKeyboardLayout(idThread: u32) callconv(.winapi) ?HKL;
+
+pub extern "user32" fn MapVirtualKeyExW(
+    uCode: u32,
+    uMapType: u32,
+    dwhkl: ?HKL,
+) callconv(.winapi) u32;

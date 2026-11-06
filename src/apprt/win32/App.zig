@@ -1705,9 +1705,13 @@ fn registerGlobalHotkey(self: *App) void {
         if (trigger.mods.shift) mods |= w32.MOD_SHIFT;
         if (trigger.mods.super) mods |= w32.MOD_WIN;
 
-        // Convert Ghostty key to Win32 VK.
+        // Convert Ghostty key to Win32 VK. Physical keys are positions
+        // (W3C codes), so the layout-dependent ones go through their
+        // scancode and the active keyboard layout: `global:backquote` is
+        // the key left of 1 on any layout (VK_OEM_3 on US, VK_OEM_5 on
+        // German, ...).
         const vk: ?u32 = switch (trigger.key) {
-            .physical => |phys| keyToVk(phys),
+            .physical => |phys| physicalKeyToVk(phys),
             .unicode => |cp| blk: {
                 // For ASCII characters, VK code = uppercase char.
                 if (cp >= 'a' and cp <= 'z') break :blk @as(u32, cp - 'a' + 'A');
@@ -1732,8 +1736,93 @@ fn registerGlobalHotkey(self: *App) void {
             continue;
         };
         next_id += 1;
-        log.info("registered global hotkey id={} action={s}", .{ id, @tagName(leaf.action) });
+        log.info("registered global hotkey id={} action={s} vk=0x{x}", .{ id, @tagName(leaf.action), vk_code });
     }
+}
+
+/// Re-registers the global hotkeys, e.g. after the keyboard layout
+/// changed (physical keys may then map to different virtual keys).
+pub fn reregisterGlobalHotkeys(self: *App) void {
+    for (self.global_hotkeys.items) |hk| _ = w32.UnregisterHotKey(null, hk.id);
+    self.global_hotkeys.clearRetainingCapacity();
+    self.registerGlobalHotkey();
+}
+
+/// The virtual key at a physical key's position in the active keyboard
+/// layout; for keys that don't move between layouts, keyToVk.
+fn physicalKeyToVk(key: @import("../../input/key.zig").Key) ?u32 {
+    if (keyToScancode(key)) |sc| {
+        const layout = w32.GetKeyboardLayout(0);
+        const vk = w32.MapVirtualKeyExW(sc, w32.MAPVK_VSC_TO_VK, layout);
+        if (vk != 0) return vk;
+    }
+    return keyToVk(key);
+}
+
+/// Set-1 scancode of the layout-dependent physical keys (letters, digits
+/// and punctuation), by W3C position. Null for the others.
+fn keyToScancode(key: @import("../../input/key.zig").Key) ?u32 {
+    return switch (key) {
+        .backquote => 0x29,
+        .digit_1 => 0x02,
+        .digit_2 => 0x03,
+        .digit_3 => 0x04,
+        .digit_4 => 0x05,
+        .digit_5 => 0x06,
+        .digit_6 => 0x07,
+        .digit_7 => 0x08,
+        .digit_8 => 0x09,
+        .digit_9 => 0x0A,
+        .digit_0 => 0x0B,
+        .minus => 0x0C,
+        .equal => 0x0D,
+        .key_q => 0x10,
+        .key_w => 0x11,
+        .key_e => 0x12,
+        .key_r => 0x13,
+        .key_t => 0x14,
+        .key_y => 0x15,
+        .key_u => 0x16,
+        .key_i => 0x17,
+        .key_o => 0x18,
+        .key_p => 0x19,
+        .bracket_left => 0x1A,
+        .bracket_right => 0x1B,
+        .key_a => 0x1E,
+        .key_s => 0x1F,
+        .key_d => 0x20,
+        .key_f => 0x21,
+        .key_g => 0x22,
+        .key_h => 0x23,
+        .key_j => 0x24,
+        .key_k => 0x25,
+        .key_l => 0x26,
+        .semicolon => 0x27,
+        .quote => 0x28,
+        .backslash => 0x2B,
+        .key_z => 0x2C,
+        .key_x => 0x2D,
+        .key_c => 0x2E,
+        .key_v => 0x2F,
+        .key_b => 0x30,
+        .key_n => 0x31,
+        .key_m => 0x32,
+        .comma => 0x33,
+        .period => 0x34,
+        .slash => 0x35,
+        .intl_backslash => 0x56,
+        else => null,
+    };
+}
+
+test "global hotkey scancodes" {
+    const Key = @import("../../input/key.zig").Key;
+    // The key left of 1, whatever the layout calls it.
+    try std.testing.expectEqual(@as(?u32, 0x29), keyToScancode(Key.backquote));
+    try std.testing.expectEqual(@as(?u32, 0x2C), keyToScancode(Key.key_z));
+    try std.testing.expectEqual(@as(?u32, null), keyToScancode(Key.f1));
+    // Keys that don't move between layouts keep their fixed VK.
+    try std.testing.expectEqual(@as(?u32, w32.VK_F1), physicalKeyToVk(Key.f1));
 }
 
 /// Map a Ghostty physical key to a Win32 virtual key code.

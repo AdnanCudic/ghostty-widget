@@ -3185,6 +3185,16 @@ test "parse: global triggers" {
         .flags = .{ .global = true },
     }, try parseSingle("global:key_a+shift=ignore"));
 
+    // the key left of 1, with no modifier (quake-style quick terminal)
+    try testing.expectEqual(Binding{
+        .trigger = .{
+            .mods = .{},
+            .key = .{ .physical = .backquote },
+        },
+        .action = .{ .toggle_quick_terminal = {} },
+        .flags = .{ .global = true },
+    }, try parseSingle("global:backquote=toggle_quick_terminal"));
+
     // global unconsumed keys
     try testing.expectEqual(Binding{
         .trigger = .{

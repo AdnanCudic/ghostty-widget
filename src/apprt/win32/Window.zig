@@ -2438,6 +2438,12 @@ pub fn windowWndProc(
             }
             return w32.DefWindowProcW(hwnd, msg, wparam, lparam);
         },
+        w32.WM_INPUTLANGCHANGE => {
+            // Fork addition: global hotkeys on physical keys follow the
+            // keyboard layout (see App.physicalKeyToVk).
+            window.app.reregisterGlobalHotkeys();
+            return w32.DefWindowProcW(hwnd, msg, wparam, lparam);
+        },
         w32.WM_WINDOWPOSCHANGED => {
             // Fork addition: overlays (SSH badge, corner widget) are owned
             // popups. They follow the window when it moves, and hide when
