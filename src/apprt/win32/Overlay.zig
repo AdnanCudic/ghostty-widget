@@ -53,6 +53,10 @@ h: i32 = 1,
 wanted: bool = false,
 /// Whether the popup is currently shown.
 shown: bool = false,
+/// Keep the popup always on top; set for overlays in the quick terminal,
+/// which is a topmost window (not every system reports that in its
+/// extended style, so it is not left to detection alone).
+topmost: bool = false,
 
 pub fn create(
     alloc: std.mem.Allocator,
@@ -85,6 +89,14 @@ pub fn create(
     return self;
 }
 
+/// Moves the popup to a new owner window (the surface's tab was moved to
+/// another window).
+pub fn setOwner(self: *Overlay, owner: w32.HWND, topmost: bool) void {
+    _ = w32.SetWindowLongPtrW(self.hwnd, w32.GWLP_HWNDPARENT, @bitCast(@intFromPtr(owner)));
+    self.topmost = topmost;
+    self.sync();
+}
+
 pub fn destroy(self: *Overlay, alloc: std.mem.Allocator) void {
     _ = w32.SetWindowLongPtrW(self.hwnd, w32.GWLP_USERDATA, 0);
     _ = w32.DestroyWindow(self.hwnd);
@@ -100,18 +112,27 @@ pub fn setRect(self: *Overlay, x: i32, y: i32, w: i32, h: i32) void {
     self.reposition();
 }
 
-/// Follows the surface after it, or its window, moved.
+/// Follows the surface after it, or its window, moved. Also matches the
+/// window's always-on-top state, so the overlay stays above a topmost
+/// window such as the quick terminal.
 pub fn reposition(self: *Overlay) void {
     var pt: w32.POINT = .{ .x = self.x, .y = self.y };
     _ = w32.ClientToScreen(self.surface_hwnd, &pt);
+    const top = w32.GetAncestor(self.surface_hwnd, w32.GA_ROOT);
+    const owner_topmost = if (top) |t|
+        (@as(u32, @bitCast(w32.GetWindowLongW(t, w32.GWL_EXSTYLE))) & w32.WS_EX_TOPMOST) != 0
+    else
+        false;
+    const self_topmost = (@as(u32, @bitCast(w32.GetWindowLongW(self.hwnd, w32.GWL_EXSTYLE))) & w32.WS_EX_TOPMOST) != 0;
+    const z: ?w32.HWND = if (owner_topmost or self.topmost) w32.HWND_TOPMOST else if (self_topmost) w32.HWND_NOTOPMOST else null;
     _ = w32.SetWindowPos(
         self.hwnd,
-        null,
+        z,
         pt.x,
         pt.y,
         self.w,
         self.h,
-        w32.SWP_NOACTIVATE | w32.SWP_NOZORDER,
+        w32.SWP_NOACTIVATE | (if (z == null) w32.SWP_NOZORDER else 0),
     );
 }
 
@@ -175,6 +196,13 @@ pub fn paint(
     if (w32.UpdateLayeredWindow(self.hwnd, screen_dc, &pt, &size, mem_dc, &src, 0, &blend, w32.ULW_ALPHA) == 0) {
         log.debug("UpdateLayeredWindow failed", .{});
     }
+}
+
+/// The popup's top-left corner on screen.
+pub fn screenPos(self: *const Overlay) w32.POINT {
+    var pt: w32.POINT = .{ .x = self.x, .y = self.y };
+    _ = w32.ClientToScreen(self.surface_hwnd, &pt);
+    return pt;
 }
 
 fn takesMouse(self: *Overlay, x: i32, y: i32) bool {

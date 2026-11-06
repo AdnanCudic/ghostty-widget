@@ -660,6 +660,10 @@ fn onTimer(ctx: *anyopaque, id: usize) void {
             // Hidden (another tab, minimized, quick terminal away): skip;
             // sync() refreshes when it comes back.
             if (!self.overlay.shown) return;
+            // Keep the popup glued on and above its window even if
+            // something restacked it (e.g. the quick terminal re-asserting
+            // always-on-top while sliding in).
+            self.overlay.reposition();
             const had_song = self.hasSong();
             const had_weather = self.hasWeather();
             self.refresh();
@@ -705,6 +709,11 @@ fn repaint(self: *CornerWidget) void {
     h.update(std.mem.asBytes(&cur));
     h.update(std.mem.asBytes(&self.overlay.w));
     h.update(std.mem.asBytes(&self.overlay.h));
+    // Also repaint after moving: some layered-window implementations (Wine)
+    // drop what was painted while the window was off screen, e.g. while
+    // the quick terminal waited above the top of the screen.
+    const pos = self.overlay.screenPos();
+    h.update(std.mem.asBytes(&pos));
     const sig = h.final() | 1;
     if (sig == self.painted) return;
     self.painted = sig;

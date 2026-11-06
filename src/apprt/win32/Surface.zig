@@ -341,12 +341,18 @@ pub fn initWithOptions(
         log.warn("unable to create SSH badge overlay err={}", .{err});
         break :blk null;
     };
-    if (self.remote_badge) |b| b.resize(@intCast(self.width), self.scale);
+    if (self.remote_badge) |b| {
+        b.overlay.topmost = parent.is_quick_terminal;
+        b.resize(@intCast(self.width), self.scale);
+    }
     self.corner_widget = CornerWidget.create(alloc, hwnd, app.hinstance) catch |err| blk: {
         log.warn("unable to create corner widget overlay err={}", .{err});
         break :blk null;
     };
-    if (self.corner_widget) |cw| cw.resize(@intCast(self.width), @intCast(self.height), self.scale);
+    if (self.corner_widget) |cw| {
+        cw.overlay.topmost = parent.is_quick_terminal;
+        cw.resize(@intCast(self.width), @intCast(self.height), self.scale);
+    }
 
     // Seed initial theme colors from the app config.
     if (self.scrollbar) |sb| {
@@ -521,6 +527,11 @@ pub fn reparentNativeWindows(self: *Surface, parent: w32.HWND) !void {
         if (owner == 0) return error.Win32Error;
         previous_owners[i] = owner;
     }
+
+    // Fork addition: the overlays follow to the new window.
+    const in_quick_terminal = if (self.app.quick_terminal) |qt| qt.window.hwnd == parent else false;
+    if (self.remote_badge) |b| b.overlay.setOwner(parent, in_quick_terminal);
+    if (self.corner_widget) |cw| cw.overlay.setOwner(parent, in_quick_terminal);
 }
 
 /// A popup can be destroyed without destroying its terminal surface.
